@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from 'react'
@@ -6,6 +5,11 @@ import * as React from 'react'
 import Head from 'next/head';
 import Script from 'next/script';
 import { useRouter } from 'next/navigation';
+
+import 'aframe';
+import 'aframe-troika-text';
+import '../components/aframe-gui';
+import {Entity, Scene} from 'aframe-react';
 
 export default function Page() {
     const [menu_item, set_menu_item] = React.useState([]);
@@ -24,13 +28,8 @@ export default function Page() {
 
     React.useEffect(() => {
       if (typeof window !== "undefined") {
-        require("aframe");// <-結局、A-Frameは動的なインポートをするのが重要！
-        require('../components/aframe-gui');
-        require('aframe-troika-text');
-
         window.workButtonAction = workButtonAction;
         console.log("Window Action", window.workButtonAction);
-  
       }
       const data = [
         { "title": "プラネット東海", "datetime": "2024年10月03日 7時-12時" },
@@ -50,7 +49,7 @@ export default function Page() {
 
     return (
         <>
-            <a-scene xr-mode-ui="enabled: true"
+            <Scene xr-mode-ui="enabled: true"
                 cursor__mouse="rayOrigin: mouse"
                 cursor__touch="rayOrigin: touch"
             >
@@ -131,21 +130,20 @@ export default function Page() {
                     </a-gui-icon-label-button>
                 </a-gui-flex-container>
 
-                <a-sky color="#444466"></a-sky>
+                <Entity primitive="a-sky" color="#444466" />
 
                 {/* Mouse cursor so we can click on the scene with mouse or touch. */}
-                <a-entity id="mouseCursor" cursor="rayOrigin: mouse" raycaster="objects: [gui-interactable]"></a-entity>
-                <a-entity id="leftHand" laser-controls="hand: left" raycaster="objects: [gui-interactable]"></a-entity>
-                <a-entity id="rightHand" laser-controls="hand: right" raycaster="objects: [gui-interactable]"></a-entity>
+                <Entity id="mouseCursor" cursor="rayOrigin: mouse" raycaster="objects: [gui-interactable]"></Entity>
+                <Entity id="leftHand" laser-controls="hand: left" raycaster="objects: [gui-interactable]"></Entity>
+                <Entity id="rightHand" laser-controls="hand: right" raycaster="objects: [gui-interactable]"></Entity>
 
                 {/*	 Camera + cursor. -->*/}
-                <a-entity id="cameraRig" position="0 0 0">
-                    <a-camera look-controls wasd-controls position="0 0 0">
-                    </a-camera>
-                </a-entity>
+                <Entity id="cameraRig" position="0 0 0">
+                    <Entity primitive="a-camera" look-controls wasd-controls position="0 0 0" />
+                </Entity>
 
 
-            </a-scene>
+            </Scene>
         </>
     )
 

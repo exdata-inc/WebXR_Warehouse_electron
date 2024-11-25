@@ -14,6 +14,16 @@ import { load_workers } from './load_worker_stat.js';
 import WorkerTaskStates from "../../components/WorkerTaskStates";
 import PalletInfoDisp from '../../components/PalletInfoDisp';
 
+import "aframe";
+import 'aframe-troika-text';
+import 'aframe-orbit-controls';
+import '../../components/aframe-gui';
+import '../../vendor/button-wasd-controls';
+import '../../components/updown-key-controls';
+import './boxObjects.js'; // A-Frame pallets
+import './workerObjects.js'; // A-Frame workers
+import {Entity, Scene} from 'aframe-react';
+
 
 export default function Page() {
 
@@ -236,28 +246,20 @@ export default function Page() {
 
     // 初回のみ実行
     React.useEffect(() => {
-        if (typeof window !== "undefined") {
+        if (typeof window !== "undefined" && pstatRef.current && workerRef.current) {
             // pstatRef を使って、boxObjects からパレットの統計情報を取得する
-            const pstatEl = pstatRef.current;
-//            console.log("PstatEl",pstatEl);
+            const pstatEl = pstatRef.current.el;
+            console.log("PstatEl",pstatEl);
             if (pstatEl) {
                 pstatEl.addEventListener("pallet_stats", handlePstatEvent);
                 pstatEl.addEventListener("pallet_info", handlePalletInfo);
             }
-            const workerEl = workerRef.current;
+            const workerEl = workerRef.current.el;
             if (workerEl) {
                 console.log("Set worker events");
                 workerEl.addEventListener("worker_task",handleWorkerEvent);
             }
 
-            require("aframe");// <-結局、A-Frameは動的なインポートをするのが重要！
-            require('aframe-troika-text');
-            require('aframe-orbit-controls');
-            require('../../components/aframe-gui');
-            require('../../vendor/button-wasd-controls');
-            require('../../components/updown-key-controls');
-            require('./boxObjects.js'); // A-Frame pallets
-            require('./workerObjects.js'); // A-Frame workers
             //            require('../../components/camera-move-notify');// カメラ移動通知
             //            require('./load_worker_stat');// データ読み込み
 
@@ -281,7 +283,7 @@ export default function Page() {
             }
         }
         //        checkGLsize();
-    }, []);
+    }, [pstatRef.current, workerRef.current]);
 
 
     // フレーム情報が変化した場合に実行
@@ -329,7 +331,7 @@ export default function Page() {
     return (
         <>
             {/* for react dev-tool   <Script src="http://localhost:8097" /> */}
-            <a-scene xr-mode-ui="enabled: true"
+            <Scene xr-mode-ui="enabled: true"
 
             >
                 {/*
@@ -371,20 +373,20 @@ export default function Page() {
                 <a-box width="1" height="4" depth="1" position="-1.05 2 0.52" color="#999999" opacity="0.5"></a-box>
                 <a-box width="1" height="4" depth="1" position="9.2 2 -9.48" color="#999999" opacity="0.5"></a-box>
                 <a-box width="1" height="4" depth="1" position="-1.05 2 -9.48" color="#999999" opacity="0.5"></a-box>
-                <a-entity id="mouseCursor" cursor="rayOrigin: mouse" raycaster="objects: [gui-interactable]"></a-entity>
+                <Entity id="mouseCursor" cursor="rayOrigin: mouse" raycaster="objects: [gui-interactable]"></Entity>
                 */}
 
-                <a-sky color="#444466"></a-sky>
+                <Entity primitive="a-sky" color="#444466" />
 
 
 
-                <a-entity id="pallets_el" pallets={"frame:" + cur_frame} ref={pstatRef}>  </a-entity>
+                <Entity id="pallets_el" pallets={"frame:" + cur_frame} ref={pstatRef}>  </Entity>
 
-                <a-entity id="workers_el" workers={"frame:" + cur_frame} ref={workerRef}>  </a-entity>
+                <Entity id="workers_el" workers={"frame:" + cur_frame} ref={workerRef}>  </Entity>
 
                 {/* Mouse cursor so we can click on the scene with mouse or touch. 
-                <a-entity id="leftHand" laser-controls="hand: left" raycaster="objects: [gui-interactable]"></a-entity>
-                <a-entity id="rightHand" laser-controls="hand: right" raycaster="objects: [gui-interactable]"></a-entity>
+                <Entity id="leftHand" laser-controls="hand: left" raycaster="objects: [gui-interactable]"></Entity>
+                <Entity id="rightHand" laser-controls="hand: right" raycaster="objects: [gui-interactable]"></Entity>
                 wasd-controls="fly:true"
                   */}
 
@@ -393,16 +395,13 @@ export default function Page() {
                      updown-key-controls wasd-controls="enabled: true"
             
                 */}
-                <a-entity id="cameraRig" position="0 0 0"  >
-                    <a-camera id="camera" look-controls="enabled: true"
+                <Entity id="cameraRig" position="0 0 0"  >
+                    <Entity primitive="a-camera" id="camera" look-controls="enabled: true"
                         orbit-controls="initialPosition: 0 3 5; rotateSpeed: 0.9; pan-speed: 8; maxPolarAngle: 180;"
                         wasd-controls="enabled: false"
-                    >
-                    </a-camera>
-
-
-                </a-entity>
-            </a-scene>
+                    />
+                </Entity>
+            </Scene>
             <PalletInfoDisp pallet_info={pallet_info} pinfo_disp={pinfo_disp}></PalletInfoDisp>
             <WorkerTaskStates task_info={task_info} task_label={task_label}></WorkerTaskStates>
             <div id="hud" className="hudOverlay"></div>
