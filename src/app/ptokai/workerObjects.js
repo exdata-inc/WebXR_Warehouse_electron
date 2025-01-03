@@ -149,7 +149,14 @@ AFRAME.registerComponent("workers", {
   updateLabels: function () {
     // CSSで文字表示
     if (this.wobj === undefined) return;
-    if (this.threeCamera === undefined) return;
+    if (this.threeCamera === undefined) {
+      console.warn("Camera not ready. Wait 100ms for updateLabels...");
+      setTimeout(() => {
+        this.threeCamera = this.camera.getObject3D("camera");
+        this.updateLabels();
+      }, 100);
+      return;
+    }
 
     const frm = this.data.frame % 4500; // 11:00 は 36000から
     const width = window.innerWidth;
