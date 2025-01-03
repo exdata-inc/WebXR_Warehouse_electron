@@ -72,18 +72,18 @@ AFRAME.registerComponent("pallets", {
   
       // 本当は以下のファイル読み込みはパラレルで実行可能
         try {
-            this.box_info = this.data.boxInfos;
-            console.log("Load Box ", this.box_info.length);
+            this.data.boxInfos = this.data.boxInfos;
+            console.log("Load Box ", this.data.boxInfos.length);
 
-            draw_box(this.box_info,this);
+            draw_box(this.data.boxInfos,this);
         }catch(err){
             console.log("box fetch error",err);
         }
 
         //pallet_trace // こっちはパレットの経路をパレット毎に作成済み（start.end 付き)
         try {
-            this.pallet_trace = this.data.palletTraces;
-            console.log("Load Pallet Trace ", this.pallet_trace.length);
+            this.data.palletTraces = this.data.palletTraces;
+            console.log("Load Pallet Trace ", this.data.palletTraces.length);
 
             // 移動経路表示用にもオブジェクトを用意
             this.ptrace=[];
@@ -97,7 +97,7 @@ AFRAME.registerComponent("pallets", {
 
         // 各パレットの状態（start/end/insp_start,end )
         try {
-            this.pallets = this.data.boxInspSortArea
+            this.data.boxInspSortArea = this.data.boxInspSortArea
             console.log("Load pallet ", this.data.boxInspSortArea.length);
 
             const scene = document.querySelector("a-scene");
@@ -107,11 +107,11 @@ AFRAME.registerComponent("pallets", {
             // pallets はbox の数だけあって、各pallet の中は、 start/end がある。
             // visible/invisible の制御でいきたい
 
-            this.pallets.forEach((pallet, index) => {
+            this.data.boxInspSortArea.forEach((pallet, index) => {
 //                console.log("Working for",index);
                 pallet.forEach((box, idx) => {                    
                     const obj = document.createElement("a-box");
-                    const xy = conv_global_to_local_xy(this.box_info[index].x,this.box_info[index].y);
+                    const xy = conv_global_to_local_xy(this.data.boxInfos[index].x,this.data.boxInfos[index].y);
                     obj.setAttribute("position",`${xy[0]} 0.4 ${xy[1]}`);
                     obj.setAttribute("width",1);
                     obj.setAttribute("height",0.8);
@@ -158,15 +158,13 @@ AFRAME.registerComponent("pallets", {
 
       // パレット移動情報を読み込む
         try{
-            const data = this.data.frameBasedPallets;
-
             // フレーム毎の配列にしたい。（現状は各フレーム内にframe_id が入ってる）
             var ptrack = [];
-            data.forEach((frame) => {
+            this.data.frameBasedPallets.forEach((frame) => {
                 ptrack[frame.frame_id] = frame.tracks;
             });
             this.ptrack = ptrack;
-            console.log("Load pallet track ", data.length, ptrack.length);
+            console.log("Load pallet track ", this.data.frameBasedPallets.length, ptrack.length);
 
             const scene = document.querySelector("a-scene");
             this.ptobj= [];
@@ -384,7 +382,7 @@ AFRAME.registerComponent("pallets", {
 
                         // 移動経路も表示
                         const track_obj = document.createElement("a-entity");                        
-                        track_obj.setAttribute("ribbon",{path: this.pallet_trace[pinfo.track_id].points, color: "#ff0000", width: 0.1});
+                        track_obj.setAttribute("ribbon",{path: this.data.palletTraces[pinfo.track_id].points, color: "#ff0000", width: 0.1});
                         scene.appendChild(track_obj);
                         this.ptrace[pinfo.track_id] = track_obj;
 

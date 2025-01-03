@@ -84,15 +84,13 @@ AFRAME.registerComponent("workers", {
     this.previousRotation = new THREE.Euler();
     
     try{// ワーカの配列で、タスクの start/end が記載
-      this.w_task = this.data.workerTaskEachframes;
-      console.log("Load worker task info",this.w_task.length);
+      console.log("Load worker task info",this.data.workerTaskEachframes.length);
     } catch (err) {
       console.log("worker task frame error", err);
     }
 
     try {
-      this.workers = this.data.frameBasedWorkers;
-      console.log("Load workers ", this.workers.length);
+      console.log("Load workers ", this.data.frameBasedWorkers.length);
       const scene = document.querySelector("a-scene");
 
       const hud = document.getElementById("hud");
@@ -157,7 +155,7 @@ AFRAME.registerComponent("workers", {
     const width = window.innerWidth;
     const height = window.innerHeight;
 
-    const frame_info = this.workers[frm].tracks;
+    const frame_info = this.data.frameBasedWorkers[frm].tracks;
     const view_obj = Array(39).fill(false);
 
 
@@ -178,7 +176,7 @@ AFRAME.registerComponent("workers", {
         //                    console.log("Draw text",wid, sx,sy);
 
         if(this.data.task){
-          const wk =  this.w_task[wid];
+          const wk =  this.data.workerTaskEachframes[wid];
 //          console.log("Task of",idx, wk);
           const tfrm = this.data.frame %9000; // タスクはとりあえず１時間分入ってる
           const tf = wk.some((info)=>{ // 見つかるまでのループ
@@ -221,7 +219,7 @@ AFRAME.registerComponent("workers", {
 
   update_wokers: function (){
     const frm = this.data.frame % 4500; // 11:00 は 36000から
-    const frame_info = this.workers[frm].tracks;
+    const frame_info = this.data.frameBasedWorkers[frm].tracks;
     //                console.log("Tracks len",this.data.frame,  frame_info.length);
     const view_obj = Array(39).fill(false);
     frame_info.forEach((winfo, idx) => {
@@ -298,7 +296,7 @@ AFRAME.registerComponent("workers", {
 
     if (this.data.mode == "None") {
       const frm = this.data.frame % 4500; // 11:00 は 36000から
-      const frame_info = this.workers[frm].tracks;
+      const frame_info = this.data.frameBasedWorkers[frm].tracks;
       //                console.log("Tracks len",this.data.frame,  frame_info.length);
       const view_obj = Array(39).fill(false);
       frame_info.forEach((winfo, idx) => {
