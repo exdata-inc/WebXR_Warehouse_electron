@@ -116,7 +116,7 @@ export default function Page() {
                         font-family={BIZUDPGothic_Bold}
                         depth="0.3"
                         margin="0.2 0 0.05 0"
-                        onclick="workButtonAction" click-arg="setting"
+                        onclick={() => router.push('/setting')} click-arg="setting"
                     >
                     </a-gui-icon-label-button>
 
