@@ -58,6 +58,10 @@ AFRAME.registerComponent("pallets", {
         pinfo_disp: {type: 'boolean', default: false},
         pallet_disp: {type: 'boolean', default: true},// パレットを表示するか
         select_pid: {type: 'int', default: -1},
+        boxInspSortArea: {type: 'array', default: []},
+        frameBasedPallets: {type: 'array', default: []},
+        palletTraces: {type: 'array', default: []},
+        boxInfos: {type: 'array', default: []},
     },
   
     init: async function () {
@@ -68,8 +72,7 @@ AFRAME.registerComponent("pallets", {
   
       // 本当は以下のファイル読み込みはパラレルで実行可能
         try {
-            const res = await fetch('http://localhost:3000/ptokai_box_info.json');
-            this.box_info = await res.json();
+            this.box_info = this.data.boxInfos;
             console.log("Load Box ", this.box_info.length);
 
             draw_box(this.box_info,this);
@@ -79,8 +82,7 @@ AFRAME.registerComponent("pallets", {
 
         //pallet_trace // こっちはパレットの経路をパレット毎に作成済み（start.end 付き)
         try {
-            const res = await fetch('http://localhost:3000/pallet_trace_20241003_1100-1130.json');
-            this.pallet_trace = await res.json();
+            this.pallet_trace = this.data.palletTraces;
             console.log("Load Pallet Trace ", this.pallet_trace.length);
 
             // 移動経路表示用にもオブジェクトを用意
@@ -95,10 +97,8 @@ AFRAME.registerComponent("pallets", {
 
         // 各パレットの状態（start/end/insp_start,end )
         try {
-            const res =  await fetch('http://localhost:3000/box_insp_sort_area_07-12.json');
-            const data = await res.json();
-            this.pallets = data
-            console.log("Load pallet ", data.length);
+            this.pallets = this.data.boxInspSortArea
+            console.log("Load pallet ", this.data.boxInspSortArea.length);
 
             const scene = document.querySelector("a-scene");
             this.pobj= [];
@@ -158,8 +158,7 @@ AFRAME.registerComponent("pallets", {
 
       // パレット移動情報を読み込む
         try{
-            const res =  await fetch('http://localhost:3000/frame_based_pallet_1110.json');
-            const data = await res.json();
+            const data = this.data.frameBasedPallets;
 
             // フレーム毎の配列にしたい。（現状は各フレーム内にframe_id が入ってる）
             var ptrack = [];
@@ -247,7 +246,7 @@ AFRAME.registerComponent("pallets", {
   
     tick: function (time, delta) {
     // カメラが動いたかを検知したい
-        if (this.camera === undefined) return;
+        if (this.threeCamera === undefined) return;
         const currentPosition = this.threeCamera.position;
         const currentRotation = this.threeCamera.rotation;
         const moved = !currentPosition.equals(this.previousPosition);

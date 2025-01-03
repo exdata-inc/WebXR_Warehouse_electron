@@ -8,8 +8,6 @@ import Head from 'next/head';
 import Script from 'next/script';
 import Controller from './controller.js';
 
-import { load_workers } from './load_worker_stat.js';
-
 //import '../../vendor/button-wasd-controls.css';
 import WorkerTaskStates from "../../components/WorkerTaskStates";
 import PalletInfoDisp from '../../components/PalletInfoDisp';
@@ -23,6 +21,12 @@ import '../../components/updown-key-controls';
 import './boxObjects.js'; // A-Frame pallets
 import './workerObjects.js'; // A-Frame workers
 
+import { useViewerStateContext } from '@/providers/ViewerStateContext';
+
+import fa_solid_900 from '@public/fonts/fa-solid-900.ttf';
+import fa_brands_400 from '@public/fonts/fa-brands-400.ttf';
+import BIZUDPGothic_Bold from '@public/fonts/BIZUDPGothic-Bold.ttf';
+
 
 export default function Page() {
 
@@ -34,7 +38,6 @@ export default function Page() {
     const [task_label, set_task_label] = React.useState(false);
     const [worker_mode, set_worker_mode] = React.useState(true);
     const [worker_disp, set_worker_disp] = React.useState(false);//作業者の統計パネルを出すか出さないか
-    const [worker_stat, set_worker_stat] = React.useState([]); // 作業者の統計情報
     const [pallet_disp, set_pallet_disp] = React.useState(true); // パレットを表示するかどうか
     const [ptrace_mode, set_ptrace_mode] = React.useState(false);
     const [pinfo_disp, set_pinfo_disp] = React.useState(false); // パレット個別情報を表示するか
@@ -56,6 +59,18 @@ export default function Page() {
 
     const pstatRef = React.useRef(null);
     const workerRef = React.useRef(null);
+
+    const {
+        floorImage,
+        boxInspSortArea,
+        frameBasedPallets,
+        frameBasedWorkers,
+        palletTraces,
+        boxInfos,
+        workerStats, // 作業者の統計情報
+        setWorkerStats,
+        workerTaskEachframes,
+    } = useViewerStateContext();
 
 
     const add_image = () => {
@@ -232,7 +247,7 @@ export default function Page() {
         if (cam) {
             //            console.log("Camera: for orbit",cam);
             const oc = cam.components['orbit-controls'];
-            if (oc) {
+            if (oc && oc.controls && oc.controls.listenToKeyEvents) {
                 //              console.log("OrbitControl",oc);
                 oc.controls.listenToKeyEvents(window);
             } else {
@@ -264,12 +279,7 @@ export default function Page() {
 
 
             console.log("Load worker stat")
-            const stat_data = load_workers();
-            //            console.log("Stat data",stat_data);
-            stat_data.then((data) => {
-                //                console.log("promised data",stat_data);
-                set_worker_stat(data);
-            });
+            //set_worker_stat(workerStats);
 
             // add key event listener to OrbitControl
             setTimeout(setOrbitControl_Key, 500);
@@ -291,21 +301,34 @@ export default function Page() {
 
     React.useEffect(() => {
         const wor = document.getElementById("workers_el");
-        wor.setAttribute("workers", { frame: cur_frame, mode: disp_mode, label: label_mode, task: task_label, worker: worker_mode, select_id: select_id });
-    }, [cur_frame, disp_mode, label_mode, worker_mode, task_label, select_id]);
+        wor.setAttribute("workers", {
+            frame: cur_frame,
+            mode: disp_mode,
+            label: label_mode,
+            task: task_label,
+            worker: worker_mode,
+            select_id: select_id,
+            frameBasedWorkers: frameBasedWorkers,
+            workerTaskEachframes: workerTaskEachframes,
+        });
+    }, [cur_frame, disp_mode, label_mode, worker_mode, task_label, select_id, frameBasedWorkers, workerTaskEachframes]);
 
     React.useEffect(() => {
-        const wor = document.getElementById("pallets_el");
-        wor.setAttribute("pallets", { 
-            frame: cur_frame, 
-            mode: disp_mode, 
+        const pallets_el = document.getElementById("pallets_el");
+        pallets_el.setAttribute("pallets", { 
+            frame: cur_frame,
+            mode: disp_mode,
             pallet_disp: pallet_disp,
             pstat_disp: pstat_disp,
-            pinfo_disp: pinfo_disp, 
-            ptrace: ptrace_mode, 
-            select_pid: select_pid 
+            pinfo_disp: pinfo_disp,
+            ptrace: ptrace_mode,
+            select_pid: select_pid,
+            boxInspSortArea: boxInspSortArea,
+            frameBasedPallets: frameBasedPallets,
+            palletTraces: palletTraces,
+            boxInfos: boxInfos,
         });
-    }, [cur_frame, disp_mode, select_pid,pinfo_disp,pallet_disp]);
+    }, [cur_frame, disp_mode, select_pid, pinfo_disp, pallet_disp, boxInspSortArea, frameBasedPallets, palletTraces, boxInfos]);
 
 
     const controllerProps = {
@@ -314,7 +337,7 @@ export default function Page() {
         disp_mode, set_disp_mode, frame_step, set_frame_step,
         ptrace_mode, set_ptrace_mode, pstat_disp, set_pstat_disp,
         label_mode, set_label_mode, worker_mode, set_worker_mode, pallet_stat,
-        worker_disp, set_worker_disp, worker_stat, set_worker_stat, select_id, set_select_id,
+        worker_disp, set_worker_disp, worker_stat: workerStats, set_worker_stat: setWorkerStats, select_id, set_select_id,
         select_pid, set_select_pid,
         min_mode, set_min_mode, set_interval_time,
         pinfo_disp, set_pinfo_disp,pallet_info, set_pallet_info,
@@ -338,11 +361,11 @@ export default function Page() {
                 cursor__touch="rayOrigin: touch"
                 */}
                 <a-assets>
-                    <a-asset-item id="iconfontsolid" src="http://localhost:3000/fonts/fa-solid-900.ttf"></a-asset-item>
-                    <a-asset-item id="iconfontbrand" src="http://localhost:3000/fonts/fa-brands-400.ttf"></a-asset-item>
-                    <a-asset-item id="BIZfont" src="http://localhost:3000/fonts/BIZUDPGothic-Bold.ttf"></a-asset-item>
+                    <a-asset-item id="iconfontsolid" src={fa_solid_900}></a-asset-item>
+                    <a-asset-item id="iconfontbrand" src={fa_brands_400}></a-asset-item>
+                    <a-asset-item id="BIZfont" src={BIZUDPGothic_Bold}></a-asset-item>
 
-                    <img id="FloorImage" src="http://localhost:3000/stitched_20241106105031.jpg"></img>
+                    <img id="FloorImage" src={floorImage.src}></img>
                     <video id="FloorVideo" src="http://localhost:3000/video/new_small_overlap_1100_1200_ts_2x_nkawa1934.mp4"></video>
                 </a-assets>
 

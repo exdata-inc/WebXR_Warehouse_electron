@@ -1,6 +1,5 @@
 // Native
 import { join } from "path";
-const path = require('path');
 
 // Packages
 import { BrowserWindow, app, ipcMain, IpcMainEvent } from "electron";
@@ -8,28 +7,12 @@ import { getRandomPort } from 'get-port-please';
 import isDev from "electron-is-dev";
 import prepareNext from "electron-next";
 const express = require('express');
-const cors = require('cors');
-let publicAssetsPort = 3000;
 
 app.commandLine.appendSwitch('ignore-gpu-blacklist'); // GPU のブラックリストを無視
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 
 // Prepare the renderer once the app is ready
 app.on("ready", async () => {
-  // Express サーバーを作成
-  const publicAssetsExpress = express();
-  publicAssetsExpress.use(cors());
-
-  // public フォルダを静的ファイルとして提供
-  const publicAssetsPath = path.join(__dirname, '../public');
-  publicAssetsExpress.use(express.static(publicAssetsPath));
-
-  // サーバーを起動
-  //publicAssetsPort = await getRandomPort();
-  publicAssetsExpress.listen(publicAssetsPort, '127.0.0.1', () => {
-      console.log(`Public Assets Server is running at http://localhost:${publicAssetsPort}`);
-  });
-  
   await prepareNext("./src");
 
   const mainWindow = new BrowserWindow({

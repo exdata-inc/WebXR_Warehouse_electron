@@ -73,6 +73,8 @@ AFRAME.registerComponent("workers", {
     label: { type: "boolean", default: true },  // 通常ラベル
     task: { type: "boolean", default: true },   // タスクラベル
     select_id: {type: 'int', default: -1},
+    frameBasedWorkers: { type: "array", default: [] },
+    workerTaskEachframes: { type: "array", default: [] },
   },
 
   init: async function () {
@@ -82,16 +84,14 @@ AFRAME.registerComponent("workers", {
     this.previousRotation = new THREE.Euler();
     
     try{// ワーカの配列で、タスクの start/end が記載
-      const res = await fetch("http://localhost:3000/worker_task_eachframe_20241003_11.json");
-      this.w_task = await res.json();
+      this.w_task = this.data.workerTaskEachframes;
       console.log("Load worker task info",this.w_task.length);
     } catch (err) {
       console.log("worker task frame error", err);
     }
 
     try {
-      const res = await fetch("http://localhost:3000/frame_based_worker_1110.json");
-      this.workers = await res.json();
+      this.workers = this.data.frameBasedWorkers;
       console.log("Load workers ", this.workers.length);
       const scene = document.querySelector("a-scene");
 
@@ -249,7 +249,7 @@ AFRAME.registerComponent("workers", {
 
   tick: function (time, delta) {
     // カメラが動いたかを検知したい
-    if (this.camera === undefined) return;
+    if (this.threeCamera === undefined) return;
     const currentPosition = this.threeCamera.position;
     const currentRotation = this.threeCamera.rotation;
     const moved = !currentPosition.equals(this.previousPosition);

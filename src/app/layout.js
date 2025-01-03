@@ -4,7 +4,8 @@ import Script from 'next/script';
 
 import { Inter } from "next/font/google";
 import "./globals.css";
-import CSR from '../components/CSR';
+import CSR from '@/components/CSR';
+import ViewerStateProvider from '@/providers/ViewerStateContext';
 
 
 const inter = Inter({ subsets: ["latin"] });
@@ -18,13 +19,17 @@ export default function RootLayout({ children }) {
   return (
     <html lang="jp">
       <head>
-      <Script src="http://localhost:8097"></Script>
-      <title>WebXR Warehouse</title>
+        <Script src="http://localhost:8097"></Script>
+        <title>WebXR Warehouse</title>
       </head>
       <body
         className={inter.className}
       >
-        <CSR>{children}</CSR>
+        <CSR>
+          <ViewerStateProvider>
+            {children}
+          </ViewerStateProvider>
+        </CSR>
       </body>
     </html>
   );
