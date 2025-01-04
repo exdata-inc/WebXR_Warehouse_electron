@@ -1,5 +1,6 @@
 import React, { ReactElement } from 'react';
 import { StaticImageData } from 'next/image';
+import JSZip from 'jszip';
 
 import type { BoxInspSortArea } from '@/types/BoxInspSortArea';
 import type { FrameBasedEntities } from '@/types/FrameBasedEntities';
@@ -34,6 +35,7 @@ export type ViewerStateContextType = {
   setWorkerStats: (workerStats: string | WorkerStats | File) => void;
   workerTaskEachframes: WorkerTaskEachframes;
   setWorkerTaskEachframes: (workerTaskEachframes: string | WorkerTaskEachframes | File) => void;
+  saveData: () => void;
 };
 
 const ViewerStateContext = React.createContext<ViewerStateContextType>(
@@ -233,6 +235,45 @@ export const ViewerStateProvider = (props: Props): ReactElement => {
     }
   }
 
+  const saveData = async (): Promise<void> => {
+    const zip = new JSZip();
+  
+    // 画像を追加
+    const floorImageBlob = await fetch(floorImage.src).then((response) => response.blob());
+    zip.file(`floorImage.${floorImageBlob.type.split('/')[1]}`, floorImageBlob);
+
+    // オブジェクトをそれぞれ JSON ファイルとして追加
+    const objects = {
+      boxInspSortArea,
+      frameBasedPallets,
+      frameBasedWorkers,
+      palletTraces,
+      boxInfos,
+      workerStats,
+      workerTaskEachframes,
+    };
+  
+    for (const [key, value] of Object.entries(objects)) {
+      const json = JSON.stringify(value, null, 2); // 整形された JSON
+      zip.file(`${key}.json`, json);
+    }
+  
+    // ZIP ファイルを生成
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+  
+    // 現在時刻をファイル名に含める
+    const now = new Date();
+    const formattedTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
+
+    // ZIP ファイルをダウンロード
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(zipBlob);
+    a.href = url;
+    a.download = `webxr_warehouse_${formattedTime}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const value: ViewerStateContextType = {
     floorImage,
     setFloorImage,
@@ -250,6 +291,7 @@ export const ViewerStateProvider = (props: Props): ReactElement => {
     setWorkerStats,
     workerTaskEachframes,
     setWorkerTaskEachframes,
+    saveData,
   };
   return <ViewerStateContext.Provider value={value}>{props.children}</ViewerStateContext.Provider>;
 };

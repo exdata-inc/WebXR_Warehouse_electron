@@ -1,0 +1,56 @@
+appId: jp.co.exdata.webxr-warehouse
+productName: webxr-warehouse
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!{.next,dist,electron-src,node_modules,public}/*'
+  - '!{.next,dist,public}/**/*'
+  - '!src/{.next,app,components,providers,types,vendor}/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+win:
+  executableName: webxr-warehouse
+  icon: resources/icon.png
+appx:
+  identityName: ExData.WebXRWarehouse
+  applicationId: ExData.WebXRWarehouse
+  publisherDisplayName: 株式会社ExData
+  publisher: CN=7D12B1EB-E375-407B-BAFF-66BA787CC609
+  languages: ["JA-JP"]
+  displayName: "WebXR Warehouse"
+  backgroundColor: "#FFFFFF"
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    - NSCameraUsageDescription: Application requests access to the device's camera.
+    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  notarize: false
+  icon: resources/icon.png
+dmg:
+  artifactName: ${name}-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: electronjs.org
+  category: Utility
+  icon: resources/icon.png
+appImage:
+  artifactName: ${name}-${version}.${ext}
+npmRebuild: false
+publish:
+  provider: generic
+  url: https://webxr-warehouse.exdata.co.jp/auto-updates

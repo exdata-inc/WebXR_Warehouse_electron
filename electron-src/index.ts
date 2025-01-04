@@ -42,7 +42,7 @@ app.on("ready", async () => {
     });
     mainWindow.loadURL(`http://localhost:${appPort}/`);
     // @ts-ignore (define in dts)
-    mainWindow.webContents.openDevTools();
+    // mainWindow.webContents.openDevTools();
   }
 
 });

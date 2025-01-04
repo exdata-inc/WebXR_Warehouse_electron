@@ -1,6 +1,6 @@
 {
   "name": "webxr_warehouse",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "main": "main/index.js",
   "scripts": {
@@ -34,6 +34,7 @@
     "electron-next": "^3.1.5",
     "express": "^4.21.1",
     "get-port-please": "^3.1.2",
+    "jszip": "^3.10.1",
     "mqtt": "^5.10.2",
     "next": "15.0.3",
     "numeric": "^1.2.6",

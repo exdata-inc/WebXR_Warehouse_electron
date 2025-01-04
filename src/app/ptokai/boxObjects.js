@@ -66,6 +66,11 @@ AFRAME.registerComponent("pallets", {
   
     init: async function () {
       // To keep track of the pressed keys.
+      if (this.data.boxInfos.length == 0){
+            console.warn("No Box Info. Wait for loading box info in 100 ms...");
+            setTimeout(async () => { await this.init() }, 100);
+            return;
+      }
       console.log("Initialize Pallet!!", this.data.frame);
       this.previousPosition = new THREE.Vector3();
       this.previousRotation = new THREE.Euler();
