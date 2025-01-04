@@ -36,6 +36,7 @@ export type ViewerStateContextType = {
   workerTaskEachframes: WorkerTaskEachframes;
   setWorkerTaskEachframes: (workerTaskEachframes: string | WorkerTaskEachframes | File) => void;
   saveData: () => void;
+  loadData: () => void;
 };
 
 const ViewerStateContext = React.createContext<ViewerStateContextType>(
@@ -274,6 +275,81 @@ export const ViewerStateProvider = (props: Props): ReactElement => {
     URL.revokeObjectURL(url);
   };
 
+  const loadData = async (): Promise<void> => {
+    // ファイル選択ダイアログを開く
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        const zip = new JSZip();
+        await zip.loadAsync(file);
+  
+        // 画像を読み込む
+        const floorImageBlobs = zip.file(/floorImage./);
+        if (floorImageBlobs) {
+          const floorImageBlob = await floorImageBlobs[0].async('blob');
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const imageUrl = reader.result as string;
+            // 画像の幅と高さを取得
+            const image = new Image();
+            image.src = imageUrl;
+            image.onload = () => {
+              setFloorImageData({ src: imageUrl, height: image.height, width: image.width });
+            };
+          };
+          reader.readAsDataURL(floorImageBlob);
+        }
+  
+        // オブジェクトをそれぞれ読み込む
+        const objects = {
+          boxInspSortArea,
+          frameBasedPallets,
+          frameBasedWorkers,
+          palletTraces,
+          boxInfos,
+          workerStats,
+          workerTaskEachframes,
+        };
+  
+        for (const [key, value] of Object.entries(objects)) {
+          const json = await zip.file(`${key}.json`)?.async('text');
+          if (json) {
+            const parsedData = JSON.parse(json);
+            switch (key) {
+              case 'boxInspSortArea':
+                setBoxInspSortAreaData(parsedData);
+                break;
+              case 'frameBasedPallets':
+                setFrameBasedPalletsData(parsedData);
+                break;
+              case 'frameBasedWorkers':
+                setFrameBasedWorkersData(parsedData);
+                break;
+              case 'palletTraces':
+                setPalletTracesData(parsedData);
+                break;
+              case 'boxInfos':
+                setBoxInfosData(parsedData);
+                break;
+              case 'workerStats':
+                setWorkerStatsData(parsedData);
+                break;
+              case 'workerTaskEachframes':
+                setWorkerTaskEachframesData(parsedData);
+                break;
+              default:
+                break;
+            }
+          }
+        }
+      }
+    };
+    input.click();
+  }
+
   const value: ViewerStateContextType = {
     floorImage,
     setFloorImage,
@@ -292,6 +368,7 @@ export const ViewerStateProvider = (props: Props): ReactElement => {
     workerTaskEachframes,
     setWorkerTaskEachframes,
     saveData,
+    loadData,
   };
   return <ViewerStateContext.Provider value={value}>{props.children}</ViewerStateContext.Provider>;
 };

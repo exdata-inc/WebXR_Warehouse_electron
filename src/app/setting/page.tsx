@@ -39,6 +39,7 @@ export default function Page() {
     workerTaskEachframes,
     setWorkerTaskEachframes,
     saveData,
+    loadData,
   } = useViewerStateContext();
 
   const FILE_ENTRIES = [
@@ -70,7 +71,9 @@ export default function Page() {
             <h1 className="text-4xl font-extrabold">設定</h1>
             <View width={32} />
             <Button variant="primary" onPress={saveData} UNSAFE_style={{ cursor: 'pointer' }}>現在のデータを ZIP ファイルに保存</Button>
-            <View width={32} />
+            <View width={16} />
+            <Button variant="primary" onPress={loadData} UNSAFE_style={{ cursor: 'pointer' }}>ZIP ファイルを読み込み</Button>
+            <View width={16} />
             <Button variant="secondary" onPress={() => router.push('/')} UNSAFE_style={{ cursor: 'pointer' }}>&lt; 戻る</Button>
           </Flex>
           <View marginY={10}>
