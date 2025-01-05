@@ -3,6 +3,7 @@ import * as React from 'react'
 import "./controller.css";
 import WorkerStats from '../../components/WorkerStats';
 import PalletStats from '../../components/PalletStats';
+import { useBookmarkContext } from '@/providers/BookmarkContext';
 
 export default function Controller(props) {
   const {min_frame} = props
@@ -18,6 +19,8 @@ export default function Controller(props) {
   const {set_use_video, use_video} = props;
   const {pallet_disp, set_pallet_disp}= props;
   const {small_panel, set_small_panel}=props;
+
+  const { bookmarks, addBookmark, deleteBookmark, applyBookmark } = useBookmarkContext();
 
   const on_set_cur_frame = (e)=>{
     let value = Number.parseFloat(e.target.value || 0)
@@ -104,6 +107,35 @@ export default function Controller(props) {
     return `${hourStr}:${minStr}:${secStr} / `+frame+":"+frame_step;
   }
 
+  const handleAddBookmark = () =>{
+    const now = new Date();
+    const formattedTime = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    addBookmark({
+      name: formattedTime,
+      disp_mode: disp_mode,
+      frame_step: frame_step,
+      interval_time: interval_time,
+      min_mode: min_mode,
+      label_mode: label_mode,
+      task_label: task_label,
+      worker_mode: worker_mode,
+      worker_disp: worker_disp,
+      pallet_disp: pallet_disp,
+      ptrace_mode: ptrace_mode,
+      pinfo_disp: pinfo_disp,
+      pallet_info: pallet_info,
+      pstat_disp: pstat_disp,
+      pallet_stat: pallet_stat,
+      min_frame: min_frame,
+      cur_frame: cur_frame,
+      max_frame: max_frame,
+      select_id: select_id,
+      select_pid: select_pid,
+      task_info: [],
+      use_video: use_video,
+      small_panel: small_panel,
+    });
+  }
 
   return (
     <>
@@ -137,6 +169,14 @@ export default function Controller(props) {
           <div className="col-md-4"><label htmlFor="disp_mode" className="form-label"><span className="form-control-plaintext">再生関係</span></label></div>
           <label><input type="checkbox" className="form-center-control" id="vd" checked={use_video} onChange={change_use_video}/> 動画  </label>
           <label><input type="checkbox" className="form-center-control" id="min" checked={min_mode} onChange={change_min_mode}/> 11:00~  </label>
+          <div className="col-md-4"><label htmlFor="disp_mode" className="form-label"><span className="form-control-plaintext">ブックマーク</span></label></div>
+          <button type="button" className="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-2 py-0.5 me-2 mb-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800" onClick={handleAddBookmark}>現在の状態を追加</button>
+          {bookmarks.map((bookmark, index) => (
+            <div className='flex' key={index}>
+              <button type="button" class="py-0.5 px-2 me-2 mb-2 text-sm font-medium text-gray-900 focus:outline-none bg-white rounded-lg border border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-4 focus:ring-gray-100 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700" key={index} onClick={() => applyBookmark(bookmark)}>{bookmark.name}</button>
+              <button type="button" class="focus:outline-none text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-2 py-0.5 me-2 mb-2 dark:bg-red-600 dark:hover:bg-red-700 dark:focus:ring-red-900" key={index} onClick={() => deleteBookmark(index)}>消</button>
+            </div>
+          ))}
           </div>
         </div>:<></>
         }

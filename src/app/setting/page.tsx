@@ -15,6 +15,7 @@ import { FrameBasedEntities } from '@/types/FrameBasedEntities';
 import { PalletTraces } from '@/types/PalletTrace';
 import { WorkerStats } from '@/types/WorkerStat';
 import { WorkerTaskEachframes } from '@/types/WorkerTaskEachframe';
+import { useBookmarkContext } from '@/providers/BookmarkContext';
 
 
 
@@ -41,6 +42,7 @@ export default function Page() {
     saveData,
     loadData,
   } = useViewerStateContext();
+  const { saveData: saveBookmarks, loadData: loadBookmarks } = useBookmarkContext();
 
   const FILE_ENTRIES = [
     { label: "床画像", value: floorImage, setState: setFloorImage, acceptTypes: ['image/jpeg', 'image/png'] },
@@ -73,6 +75,10 @@ export default function Page() {
             <Button variant="primary" onPress={saveData} UNSAFE_style={{ cursor: 'pointer' }}>現在のデータを ZIP ファイルに保存</Button>
             <View width={16} />
             <Button variant="primary" onPress={loadData} UNSAFE_style={{ cursor: 'pointer' }}>ZIP ファイルを読み込み</Button>
+            <View width={16} />
+            <Button variant="primary" onPress={saveBookmarks} UNSAFE_style={{ cursor: 'pointer' }}>ブックマークを保存</Button>
+            <View width={16} />
+            <Button variant="primary" onPress={loadBookmarks} UNSAFE_style={{ cursor: 'pointer' }}>ブックマークを読み込み</Button>
             <View width={16} />
             <Button variant="secondary" onPress={() => router.push('/')} UNSAFE_style={{ cursor: 'pointer' }}>&lt; 戻る</Button>
           </Flex>

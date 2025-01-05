@@ -6,6 +6,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import CSR from '@/components/CSR';
 import ViewerStateProvider from '@/providers/ViewerStateContext';
+import BookmarkProvider from '@/providers/BookmarkContext';
 
 
 const inter = Inter({ subsets: ["latin"] });
@@ -27,7 +28,9 @@ export default function RootLayout({ children }) {
       >
         <CSR>
           <ViewerStateProvider>
-            {children}
+            <BookmarkProvider>
+              {children}
+            </BookmarkProvider>
           </ViewerStateProvider>
         </CSR>
       </body>

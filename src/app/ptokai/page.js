@@ -22,6 +22,7 @@ import './boxObjects.js'; // A-Frame pallets
 import './workerObjects.js'; // A-Frame workers
 
 import { useViewerStateContext } from '@/providers/ViewerStateContext';
+import { useBookmarkContext } from '@/providers/BookmarkContext';
 
 import fa_solid_900 from '@public/fonts/fa-solid-900.ttf';
 import fa_brands_400 from '@public/fonts/fa-brands-400.ttf';
@@ -72,6 +73,71 @@ export default function Page() {
         workerTaskEachframes,
     } = useViewerStateContext();
 
+    const { registerBookmarkSetFunctions } = useBookmarkContext();
+    
+    React.useEffect(() => {
+        if (registerBookmarkSetFunctions) {
+            registerBookmarkSetFunctions({
+                set_cur_frame,
+                set_disp_mode,
+                set_frame_step,
+                set_ptrace_mode,
+                set_pstat_disp,
+                set_label_mode,
+                set_worker_mode,
+                set_task_label,
+                set_worker_disp,
+                set_select_id,
+                set_select_pid,
+                set_min_mode,
+                set_interval_time,
+                set_pinfo_disp,
+                set_pallet_disp,
+                set_small_panel,
+            });
+        }
+        console.log("Register Bookmark Set Functions");
+        return () => {
+            if (registerBookmarkSetFunctions) {
+                registerBookmarkSetFunctions({
+                    set_cur_frame: void 0,
+                    set_disp_mode: void 0,
+                    set_frame_step: void 0,
+                    set_ptrace_mode: void 0,
+                    set_pstat_disp: void 0,
+                    set_label_mode: void 0,
+                    set_worker_mode: void 0,
+                    set_task_label: void 0,
+                    set_worker_disp: void 0,
+                    set_select_id: void 0,
+                    set_select_pid: void 0,
+                    set_min_mode: void 0,
+                    set_interval_time: void 0,
+                    set_pinfo_disp: void 0,
+                    set_pallet_disp: void 0,
+                    set_small_panel: void 0,
+                });
+            }
+            console.log("Unregister Bookmark Set Functions");
+        }
+    }, [
+        set_cur_frame,
+        set_disp_mode,
+        set_frame_step,
+        set_ptrace_mode,
+        set_pstat_disp,
+        set_label_mode,
+        set_worker_mode,
+        set_task_label,
+        set_worker_disp,
+        set_select_id,
+        set_select_pid,
+        set_min_mode,
+        set_interval_time,
+        set_pinfo_disp,
+        set_pallet_disp,
+        set_small_panel,
+    ]);
 
     const add_image = () => {
         const img = document.createElement("a-image");
