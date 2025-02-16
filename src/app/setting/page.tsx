@@ -80,7 +80,7 @@ export default function Page() {
             <View width={16} />
             <Button variant="primary" onPress={loadBookmarks} UNSAFE_style={{ cursor: 'pointer' }}>ブックマークを読み込み</Button>
             <View width={16} />
-            <Button variant="secondary" onPress={() => router.push('/')} UNSAFE_style={{ cursor: 'pointer' }}>&lt; 戻る</Button>
+            <Button variant="secondary" onPress={() => router.back()} UNSAFE_style={{ cursor: 'pointer' }}>&lt; 戻る</Button>
           </Flex>
           <View marginY={10}>
             {
