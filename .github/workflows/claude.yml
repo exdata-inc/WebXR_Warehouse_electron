@@ -11,10 +11,19 @@ on:
     types: [submitted]
 
 permissions:
-  contents: write        # ブランチを push するため
-  issues: write          # Issue にコメントするため
-  pull-requests: write   # PR を作るため
+  contents: write # ブランチを push するため
+  issues: write # Issue にコメントするため
+  pull-requests: write # PR を作るため
   id-token: write
+
+env:
+  CLAUDE_CODE_ENABLE_TELEMETRY: "1"
+  OTEL_METRICS_EXPORTER: "otlp"
+  OTEL_LOGS_EXPORTER: "otlp"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "https://otlp-gateway-prod-ap-southeast-0.grafana.net/otlp"
+  OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Basic Njc0MTA2OmdsY19leUp2SWpvaU9EZ3pOVE0ySWl3aWJpSTZJbk4wWVdOckxUWTNOREV3TmkxcGJuUmxaM0poZEdsdmJpMXZjbUZqYkdVdFpYaGtZWFJoTFdOcFlTMHhJaXdpYXlJNklqRjVlVFl5TjFjNE4wVTRSMDlWWmxneWNuazJlVFpUYnlJc0ltMGlPbnNpY2lJNkluQnliMlF0WVhBdGMyOTFkR2hsWVhOMExUQWlmWDA9"
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "cumulative"
 
 jobs:
   select-runner:
@@ -115,7 +124,7 @@ jobs:
         id: claude-code
         uses: ngtystr/claude-code-action@main
         with:
-          use_oauth: 'true'
+          use_oauth: "true"
           claude_access_token: ${{ steps.claude-oauth.outputs.access_token }}
           claude_refresh_token: "disabled"
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
