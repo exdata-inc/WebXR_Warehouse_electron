@@ -1,0 +1,127 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    # Optional: Only run on specific file changes
+    # paths:
+    #   - "src/**/*.ts"
+    #   - "src/**/*.tsx"
+    #   - "src/**/*.js"
+    #   - "src/**/*.jsx"
+
+permissions:
+  contents: write # ブランチを push するため
+  issues: write # Issue にコメントするため
+  pull-requests: write # PR を作るため
+  id-token: write
+
+env:
+  CLAUDE_CODE_ENABLE_TELEMETRY: "1"
+  OTEL_METRICS_EXPORTER: "otlp"
+  OTEL_LOGS_EXPORTER: "otlp"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "https://otlp-gateway-prod-ap-southeast-0.grafana.net/otlp"
+  OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Basic Njc0MTA2OmdsY19leUp2SWpvaU9EZ3pOVE0ySWl3aWJpSTZJbk4wWVdOckxUWTNOREV3TmkxcGJuUmxaM0poZEdsdmJpMXZjbUZqYkdVdFpYaGtZWFJoTFdOcFlTMHhJaXdpYXlJNklqRjVlVFl5TjFjNE4wVTRSMDlWWmxneWNuazJlVFpUYnlJc0ltMGlPbnNpY2lJNkluQnliMlF0WVhBdGMyOTFkR2hsWVhOMExUQWlmWDA9"
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "cumulative"
+
+jobs:
+  select-runner:
+    runs-on: ubuntu-latest
+    outputs:
+      selected: ${{ steps.set-runner.outputs.selected }}
+    steps:
+      - id: set-runner
+        run: |
+          online=$(curl -s -H "Authorization: Bearer ${{ secrets.TOKEN_READ_SELF_HOSTED_RUNNERS }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/orgs/${{ github.repository_owner }}/actions/runners \
+            | jq '[.runners[] | select(.status == "online")] | length')
+          if [ "$online" -gt 0 ]; then
+            echo "selected=self-hosted" >> "$GITHUB_OUTPUT"
+          else
+            echo "selected=ubuntu-latest" >> "$GITHUB_OUTPUT"
+          fi
+
+  claude-review:
+    # Optional: Filter by PR author
+    # if: |
+    #   github.event.pull_request.user.login == 'external-contributor' ||
+    #   github.event.pull_request.user.login == 'new-developer' ||
+    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+
+    needs: select-runner
+    runs-on: ${{ needs.select-runner.outputs.selected }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Fetch Claude OAuth values
+        id: claude-oauth
+        env:
+          CLAUDE_OAUTH_URL: ${{ secrets.CLAUDE_OAUTH_URL }}
+        run: |
+          set -euo pipefail
+          json=$(curl -fsSL "$CLAUDE_OAUTH_URL")
+          access_token=$(printf '%s' "$json" | jq -r '.accessToken')
+          expires_at=$(printf '%s' "$json" | jq -r '.expiresAt | tostring')
+
+          if [ "$access_token" = "null" ] || [ -z "$access_token" ]; then
+            echo "Failed to read accessToken from JSON response" >&2
+            exit 1
+          fi
+          if [ "$expires_at" = "null" ] || [ -z "$expires_at" ]; then
+            echo "Failed to read expiresAt from JSON response" >&2
+            exit 1
+          fi
+
+          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
+          echo "expires_at=$expires_at" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: ngtystr/claude-code-action@main
+        with:
+          use_oauth: "true"
+          claude_access_token: ${{ steps.claude-oauth.outputs.access_token }}
+          claude_refresh_token: "disabled"
+          claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
+          model: ${{ vars.CLAUDE_MODEL || 'claude-opus-4-8' }}
+
+          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
+          # model: "claude-opus-4-20250514"
+
+          # Direct prompt for automated review (no @claude mention needed)
+          direct_prompt: |
+            Please review this pull request and provide feedback on:
+            - Code quality and best practices
+            - Potential bugs or issues
+            - Performance considerations
+            - Security concerns
+            - Test coverage
+
+            Be constructive and helpful in your feedback.
+
+          # Optional: Customize review based on file types
+          # direct_prompt: |
+          #   Review this PR focusing on:
+          #   - For TypeScript files: Type safety and proper interface usage
+          #   - For API endpoints: Security, input validation, and error handling
+          #   - For React components: Performance, accessibility, and best practices
+          #   - For tests: Coverage, edge cases, and test quality
+
+          # Optional: Different prompts for different authors
+          # direct_prompt: |
+          #   ${{ github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' &&
+          #   'Welcome! Please review this PR from a first-time contributor. Be encouraging and provide detailed explanations for any suggestions.' ||
+          #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
+
+          # Optional: Add specific tools for running tests or linting
+          # allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck)"
+
+          # Optional: Skip review for certain conditions
+          # if: |
+          #   !contains(github.event.pull_request.title, '[skip-review]') &&
+          #   !contains(github.event.pull_request.title, '[WIP]')

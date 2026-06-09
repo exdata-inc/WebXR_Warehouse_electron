@@ -1,0 +1,161 @@
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write # ブランチを push するため
+  issues: write # Issue にコメントするため
+  pull-requests: write # PR を作るため
+  id-token: write
+
+env:
+  CLAUDE_CODE_ENABLE_TELEMETRY: "1"
+  OTEL_METRICS_EXPORTER: "otlp"
+  OTEL_LOGS_EXPORTER: "otlp"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "https://otlp-gateway-prod-ap-southeast-0.grafana.net/otlp"
+  OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Basic Njc0MTA2OmdsY19leUp2SWpvaU9EZ3pOVE0ySWl3aWJpSTZJbk4wWVdOckxUWTNOREV3TmkxcGJuUmxaM0poZEdsdmJpMXZjbUZqYkdVdFpYaGtZWFJoTFdOcFlTMHhJaXdpYXlJNklqRjVlVFl5TjFjNE4wVTRSMDlWWmxneWNuazJlVFpUYnlJc0ltMGlPbnNpY2lJNkluQnliMlF0WVhBdGMyOTFkR2hsWVhOMExUQWlmWDA9"
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "cumulative"
+
+jobs:
+  select-runner:
+    runs-on: ubuntu-latest
+    outputs:
+      selected: ${{ steps.set-runner.outputs.selected }}
+    steps:
+      - id: set-runner
+        run: |
+          online=$(curl -s -H "Authorization: Bearer ${{ secrets.TOKEN_READ_SELF_HOSTED_RUNNERS }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/orgs/${{ github.repository_owner }}/actions/runners \
+            | jq '[.runners[] | select(.status == "online")] | length')
+          if [ "$online" -gt 0 ]; then
+            echo "selected=self-hosted" >> "$GITHUB_OUTPUT"
+          else
+            echo "selected=ubuntu-latest" >> "$GITHUB_OUTPUT"
+          fi
+
+  claude-code:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    needs: select-runner
+    runs-on: ${{ needs.select-runner.outputs.selected }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Fetch Claude OAuth values
+        id: claude-oauth
+        env:
+          CLAUDE_OAUTH_URL: ${{ secrets.CLAUDE_OAUTH_URL }}
+        run: |
+          set -euo pipefail
+          json=$(curl -fsSL "$CLAUDE_OAUTH_URL")
+          access_token=$(printf '%s' "$json" | jq -r '.accessToken')
+          expires_at=$(printf '%s' "$json" | jq -r '.expiresAt | tostring')
+
+          if [ "$access_token" = "null" ] || [ -z "$access_token" ]; then
+            echo "Failed to read accessToken from JSON response" >&2
+            exit 1
+          fi
+          if [ "$expires_at" = "null" ] || [ -z "$expires_at" ]; then
+            echo "Failed to read expiresAt from JSON response" >&2
+            exit 1
+          fi
+
+          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
+          echo "expires_at=$expires_at" >> "$GITHUB_OUTPUT"
+
+      # Slack スレッドの添付を claude が Read できるよう、実行前に取得しておく。
+      # slackmeta(channel/ts) はハブから引き継がれるので、各 repo 側でも同じ添付を再取得できる。
+      # 画像は claude が Read で視覚的に解析できる。失敗してもジョブは止めない（exit 0）。
+      - name: Download Slack attachments
+        if: contains(github.event.issue.body, 'slackmeta')
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          set -uo pipefail
+          META=$(grep -oP '(?<=slackmeta ).*(?= -->)' <<< "$ISSUE_BODY" || true)
+          if [ -z "$META" ]; then echo "slackmeta なし。スキップ"; exit 0; fi
+          CH=$(jq -r .channel <<< "$META"); TS=$(jq -r .ts <<< "$META")
+          mkdir -p slack-attachments
+          resp=$(curl -s -G https://slack.com/api/conversations.replies \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            --data-urlencode "channel=$CH" --data-urlencode "ts=$TS" --data-urlencode "limit=1000")
+          if [ "$(jq -r '.ok' <<< "$resp")" != "true" ]; then
+            echo "conversations.replies 失敗: $(jq -r '.error // "unknown"' <<< "$resp")" >&2
+            echo "（Slack アプリに files:read と channels:history / groups:history スコープが必要）" >&2
+            exit 0
+          fi
+          count=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            id=$(jq -r '.id' <<< "$f")
+            name=$(jq -r '.name // "file"' <<< "$f")
+            url=$(jq -r '.url_private_download // .url_private // empty' <<< "$f")
+            [ -z "$url" ] && continue
+            safe=$(basename "$name" | tr -cd 'A-Za-z0-9._-'); [ -z "$safe" ] && safe="file"
+            out="slack-attachments/${id}_${safe}"
+            if curl -sfL -H "Authorization: Bearer $SLACK_BOT_TOKEN" "$url" -o "$out"; then
+              echo "✓ $name -> $out"; count=$((count + 1))
+            else
+              echo "✗ DL 失敗: $name" >&2
+            fi
+          done < <(jq -c '.messages[]?.files[]?' <<< "$resp")
+          jq -r '.messages[]?.files[]? | "- \(.name)  (\(.mimetype // "?"), \(.size // 0) bytes)"' <<< "$resp" > slack-attachments/INDEX.md || true
+          echo "添付 $count 件を slack-attachments/ に保存しました"
+          ls -la slack-attachments || true
+
+      - name: Run Claude Code
+        id: claude-code
+        uses: ngtystr/claude-code-action@main
+        with:
+          use_oauth: "true"
+          claude_access_token: ${{ steps.claude-oauth.outputs.access_token }}
+          claude_refresh_token: "disabled"
+          claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
+          model: ${{ vars.CLAUDE_MODEL || 'claude-opus-4-8' }}
+          # CLAUDE.md の手順に必要なツールを許可する（CI では未許可ツールは弾かれるため）。
+          #   Bash      : post_slack ヘルパー（curl/jq/grep, 関数定義込み）と gh での PR 作成に必須
+          #   WebFetch  : URL 明示のページ取得
+          #   WebSearch : エラー文言などの Web 検索
+          # ※ コード修正・PR 作成が役割なので commit/PR 系は禁止しない（ベース許可のまま）。
+          allowed_tools: |
+            Bash
+            WebFetch
+            WebSearch
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+          # Optional: Customize the trigger phrase (default: @claude)
+          # trigger_phrase: "/claude"
+
+          # Optional: Trigger when specific user is assigned to an issue
+          # assignee_trigger: "claude-bot"
+
+          # Optional: Allow Claude to run specific commands
+          # allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
+
+          # Optional: Add custom instructions for Claude to customize its behavior for your project
+          # custom_instructions: |
+          #   Follow our coding standards
+          #   Ensure all new code has tests
+          #   Use TypeScript for new files
+
+          # Optional: Custom environment variables for Claude
+          # claude_env: |
+          #   NODE_ENV: test
