@@ -88,7 +88,7 @@ jobs:
           claude_access_token: ${{ steps.claude-oauth.outputs.access_token }}
           claude_refresh_token: "disabled"
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
-          model: ${{ vars.CLAUDE_MODEL || 'claude-opus-4-8' }}
+          model: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
 
           # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
           # model: "claude-opus-4-20250514"

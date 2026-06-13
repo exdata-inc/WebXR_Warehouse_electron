@@ -120,6 +120,27 @@ jobs:
           echo "添付 $count 件を slack-attachments/ に保存しました"
           ls -la slack-attachments || true
 
+      # claude が `gh pr create` 等で本物の PR を作れるように gh CLI を用意する。
+      # GitHub ホストランナーには既定で入っているが、セルフホストランナーには無いことがある。
+      # 無ければ sudo 不要でローカルに配置し PATH へ通す（Linux x64/arm64）。失敗してもジョブは止めない。
+      - name: Ensure GitHub CLI (gh)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            echo "gh あり: $(gh --version | head -1)"; exit 0
+          fi
+          case "$(uname -m)" in
+            x86_64|amd64) A=amd64 ;;
+            aarch64|arm64) A=arm64 ;;
+            *) echo "未対応アーキ $(uname -m)。gh をランナーに手動導入してください" >&2; exit 1 ;;
+          esac
+          VER=2.63.2
+          tmp="$(mktemp -d)"
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${VER}/gh_${VER}_linux_${A}.tar.gz" | tar -xz -C "$tmp"
+          echo "${tmp}/gh_${VER}_linux_${A}/bin" >> "$GITHUB_PATH"
+          "${tmp}/gh_${VER}_linux_${A}/bin/gh" --version | head -1
+
       - name: Run Claude Code
         id: claude-code
         uses: ngtystr/claude-code-action@main
@@ -128,7 +149,7 @@ jobs:
           claude_access_token: ${{ steps.claude-oauth.outputs.access_token }}
           claude_refresh_token: "disabled"
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
-          model: ${{ vars.CLAUDE_MODEL || 'claude-opus-4-8' }}
+          model: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
           # CLAUDE.md の手順に必要なツールを許可する（CI では未許可ツールは弾かれるため）。
           #   Bash      : post_slack ヘルパー（curl/jq/grep, 関数定義込み）と gh での PR 作成に必須
           #   WebFetch  : URL 明示のページ取得
@@ -140,6 +161,11 @@ jobs:
             WebSearch
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          # claude の Bash 内で `gh` を認証させるためのトークン（PR 作成/コメント等）。
+          # GITHUB_TOKEN（permissions の contents/issues/pull-requests: write）で同一 repo の PR 作成は可能。
+          # ※ GITHUB_TOKEN 作成の PR は他ワークフロー（claude-code-review 等）を起動しない点に注意。
+          #    レビュー bot まで起動させたい場合は PAT（例: secrets.GH_DISPATCH_TOKEN）に差し替える。
+          GH_TOKEN: ${{ github.token }}
 
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
