@@ -80,6 +80,21 @@ jobs:
           echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
           echo "expires_at=$expires_at" >> "$GITHUB_OUTPUT"
 
+      # ANTHROPIC_BASE_URL が repo の Actions secrets / variables に設定されていれば実行時の環境へ反映する
+      #（独自の Anthropic 互換エンドポイント＝gateway やローカル wrapper へ向けたいとき用）。
+      # 未設定なら何も足さない（= 既定の OAuth フローのまま）。
+      # 空文字で既定を上書きしないよう、値があるときだけ書く。
+      - name: Apply Anthropic env overrides (if set)
+        env:
+          IN_ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL || vars.ANTHROPIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -n "${IN_ANTHROPIC_BASE_URL:-}" ]; then
+            echo "ANTHROPIC_BASE_URL=${IN_ANTHROPIC_BASE_URL}" >> "$GITHUB_ENV"
+            echo "ANTHROPIC_BASE_URL を反映しました: ${IN_ANTHROPIC_BASE_URL}"
+          fi
+          true
+
       - name: Run Claude Code Review
         id: claude-review
         uses: ngtystr/claude-code-action@main
@@ -88,7 +103,7 @@ jobs:
           claude_access_token: ${{ steps.claude-oauth.outputs.access_token }}
           claude_refresh_token: "disabled"
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
-          model: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+          model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
 
           # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
           # model: "claude-opus-4-20250514"
