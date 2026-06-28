@@ -99,6 +99,10 @@ jobs:
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
           model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
           github_token: ${{ github.token }}
+          # タスク継続モード：progress_md パスをそのまま task_key として渡す。
+          # action 側で同一 task_key の open PR を探し、見つかればそのブランチに commit を追加。
+          # PR description に done_marker（既定値）が含まれている場合は何もせず終了する。
+          task_key: ${{ inputs.progress_md }}
           # 副作用を出してよいので setup_branch はデフォルト（= true）に任せる。
           allowed_tools: |
             Bash
