@@ -1,0 +1,117 @@
+# 各 repo の .github/workflows/opportunistic-task.yml に置く受け手側 workflow のテンプレ。
+# ハブ repo の .github/workflows/opportunistic-worker.yml がここに workflow_dispatch を投げる。
+#
+# 配置手順（手動 or template-propagate）:
+#   1. このファイルを対象 repo の .github/workflows/opportunistic-task.yml にコピー（ファイル名 固定）。
+#   2. 対象 repo の secrets に CLAUDE_OAUTH_URL を入れる
+#   3. 進捗 md（このファイル冒頭の inputs.progress_md で渡されるパス）を 1 つ作り、
+#      最初の「次にやること」セクションを書く。
+#   4. ハブ repo の .github/opportunistic-tasks.yml の tasks: に 1 行追加すれば、
+#      日中 30 分ごとの判定で巡ってきたタイミングで dispatch される。
+#
+# 重要:
+#   - このテンプレは 1 ステップだけ進めて commit する設計。終了まで延々と回さないこと（直近 5h 使用量を
+#     ハブ側が見て調整しているため、受け手側で長居すると見立てが崩れる）。
+
+name: Opportunistic long-running task
+
+on:
+  workflow_dispatch:
+    inputs:
+      progress_md:
+        description: '進捗・タスク内容を記した md ファイルパス（リポジトリ ルートからの相対）'
+        required: true
+      description:
+        description: 'タスクの説明（任意・ログ用）'
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+concurrency:
+  # 同じ md に対する dispatch は直列化（複数同時実行で commit が衝突しないように）。
+  group: opportunistic-task-${{ inputs.progress_md }}
+  cancel-in-progress: false
+
+jobs:
+  step:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          submodules: recursive
+
+      # ハブ repo の claude-triage.yml と同じ OAuth 取得パターン。
+      - name: Fetch Claude OAuth values
+        id: claude-oauth
+        env:
+          CLAUDE_OAUTH_URL: ${{ secrets.CLAUDE_OAUTH_URL }}
+        run: |
+          set -euo pipefail
+          json=$(curl -fsSL "$CLAUDE_OAUTH_URL")
+          access_token=$(printf '%s' "$json" | jq -r '.accessToken')
+          expires_at=$(printf '%s' "$json" | jq -r '.expiresAt | tostring')
+          [ "$access_token" = "null" ] || [ -z "$access_token" ] && { echo "accessToken 取得失敗" >&2; exit 1; }
+          [ "$expires_at" = "null" ] || [ -z "$expires_at" ] && { echo "expiresAt 取得失敗" >&2; exit 1; }
+          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
+          echo "expires_at=$expires_at" >> "$GITHUB_OUTPUT"
+
+      - name: Apply Anthropic env overrides (if set)
+        env:
+          IN_ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL || vars.ANTHROPIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -n "${IN_ANTHROPIC_BASE_URL:-}" ]; then
+            echo "ANTHROPIC_BASE_URL=${IN_ANTHROPIC_BASE_URL}" >> "$GITHUB_ENV"
+          fi
+          true
+
+      - name: Run one step of long-running task
+        uses: ngtystr/claude-code-action@main
+        with:
+          use_oauth: 'true'
+          claude_access_token: ${{ steps.claude-oauth.outputs.access_token }}
+          claude_refresh_token: "disabled"
+          claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
+          model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+          github_token: ${{ github.token }}
+          # 副作用を出してよいので setup_branch はデフォルト（= true）に任せる。
+          allowed_tools: |
+            Bash
+            WebFetch
+            WebSearch
+            mcp__github_file_ops__commit_files
+            mcp__github_file_ops__create_pull_request
+          direct_prompt: |
+            あなたは長時間タスクの「1 ステップだけ進める」担当です。今回の対象は次のとおり。
+
+            - 進捗 md: ${{ inputs.progress_md }}
+            - 補足: ${{ inputs.description }}
+
+            手順:
+            1. ${{ inputs.progress_md }} を読む。タスクの目的・完了条件・「次にやること」セクションを把握する。
+               ファイルが無ければ、テンプレ（タスク概要 / 完了条件 / これまでの進捗 / 次にやること）を新規作成して
+               次にやることを 1 件下書きし、その時点で commit して終了。
+            2. 「次にやること」から **最も小さい 1 件だけ** を選んで着手する。
+               大きすぎると感じたら、自分でさらに小分けにして「最小の 1 件」だけをやる。
+               小分けしたら、その小分け内容を一階層下げて md に追記する。
+            3. 実装→テスト/ビルド→commit。テストやビルドが落ちたら、それを直してから commit する。
+            4. ${{ inputs.progress_md }} を更新する:
+               - 完了した項目に ✅ を付ける
+               - 今回の作業で見えた新しい「次にやること」を追記
+               - 進捗メモ（詰まった箇所、判明した制約など）を簡潔に追加
+            5. 終了。**今回着手した範囲を超えて作業しないこと**（ハブの opportunistic-worker が次回の dispatch を判断する）。
+
+            禁止事項:
+            - 進捗 md に書かれていない大規模な変更や、別タスクへの飛び火
+            - main ブランチへの直接 push（PR を作るなら可）
+            - 「あと少しだから」と複数の次タスクをまとめて消化すること
+        env:
+          # claude の Bash 内で `gh` を認証させるためのトークン（PR 作成/コメント等）。
+          GH_TOKEN: ${{ github.token }}
