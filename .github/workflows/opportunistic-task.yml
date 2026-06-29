@@ -108,9 +108,16 @@ jobs:
             --jq '[.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("## opportunistic-task progress")) | .body] | first // ""')
 
           # 優先順位: bot コメント > Issue 本文 > 自動生成
-          extract_wb() { printf '%s\n' "$1" | grep -oE '^working_branch:[[:space:]]+\S+' | head -n1 | awk '{print $2}'; }
+          # grep がマッチしないと exit 1 を返し、pipefail + set -e で script が落ちるので
+          # `|| true` でパイプライン全体を「マッチ無し = 空文字」として扱う。
+          extract_wb() {
+            printf '%s\n' "$1" \
+              | { grep -oE '^working_branch:[[:space:]]+\S+' || true; } \
+              | head -n1 \
+              | awk '{print $2}'
+          }
           WB=$(extract_wb "$BOT_BODY")
-          [ -z "$WB" ] && WB=$(extract_wb "$ISSUE_BODY")
+          [ -z "$WB" ] && WB=$(extract_wb "$ISSUE_BODY") || true
           if [ -z "$WB" ]; then
             SLUG=$(printf '%s' "$ISSUE_TITLE" \
               | tr '[:upper:]' '[:lower:]' \
