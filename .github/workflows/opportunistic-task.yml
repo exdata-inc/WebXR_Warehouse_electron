@@ -59,6 +59,33 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      # self-hosted runner には gh CLI が無いことが多いので、無ければ portable binary を
+      # ~/.local/bin に展開し、GITHUB_PATH に通す（sudo 不要）。既にあれば何もしない。
+      # 後続の Resolve working branch step や claude の direct_prompt 内 (gh issue view 等) が
+      # gh を使う前提で書かれているため、Job 冒頭で確保しておく。
+      - name: Ensure gh CLI is available
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            echo "gh CLI already installed: $(gh --version | head -n1)"
+            exit 0
+          fi
+          VERSION="2.62.0"
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64)  GH_ARCH=amd64 ;;
+            aarch64) GH_ARCH=arm64 ;;
+            *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;;
+          esac
+          mkdir -p "$HOME/.local/bin"
+          tmp=$(mktemp -d)
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${VERSION}/gh_${VERSION}_linux_${GH_ARCH}.tar.gz" \
+            | tar -xz -C "$tmp"
+          install -m 0755 "$tmp/gh_${VERSION}_linux_${GH_ARCH}/bin/gh" "$HOME/.local/bin/gh"
+          rm -rf "$tmp"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/gh" --version
+
       # Issue 本文 + 既存 bot コメントから「使うブランチ名」「Issue 作成者」を決定する。
       # bot コメントの working_branch 行が最優先 → Issue 本文の working_branch 行 → 自動生成。
       - name: Resolve working branch
