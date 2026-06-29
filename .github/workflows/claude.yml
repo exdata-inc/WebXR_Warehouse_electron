@@ -51,11 +51,23 @@ jobs:
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     needs: select-runner
     runs-on: ${{ needs.select-runner.outputs.selected }}
+    container:
+      image: ngtystr/rust-obfuscator-llvm:1.93.0-21.1.8-20260630
+    # この container では Actions runner が bash を自動検出できず sh フォールバックしていたため、
+    # ジョブ全体の run step を bash で実行するよう明示する。bash は image に同梱されている前提。
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      - name: Prepare task environment
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory '*'
 
       - name: Fetch Claude OAuth values
         id: claude-oauth
@@ -200,3 +212,15 @@ jobs:
           # Optional: Custom environment variables for Claude
           # claude_env: |
           #   NODE_ENV: test
+
+      # このジョブはコンテナ内で root として動くため、checkout / cargo が生成した
+      # ファイルは host 上で root 所有になる。次に同じ self-hosted runner で
+      # コンテナを使わないワークフロー(main 等)が動くと、runner ユーザーがそれらを
+      # 削除できず checkout(git clean) が "permission denied" でコケる。
+      # そこで (1) 所有者をマウント元 /__w(= runner ユーザー)に戻し、(2) 中身を削除する。
+      # ビルドが途中で失敗しても必ず後始末されるよう if: always() を付ける。
+      - name: Cleanup Directory
+        if: always()
+        run: |
+          chown -R --reference=/__w /__w 2>/dev/null || true
+          rm -rf -- "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.[!.]* "$GITHUB_WORKSPACE"/..?* 2>/dev/null || true
