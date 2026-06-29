@@ -50,26 +50,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  select-runner:
-    runs-on: ubuntu-latest
-    outputs:
-      selected: ${{ steps.set-runner.outputs.selected }}
-    steps:
-      - id: set-runner
-        run: |
-          online=$(curl -s -H "Authorization: Bearer ${{ secrets.TOKEN_READ_SELF_HOSTED_RUNNERS }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/orgs/${{ github.repository_owner }}/actions/runners \
-            | jq '[.runners[] | select(.status == "online")] | length')
-          if [ "$online" -gt 0 ]; then
-            echo "selected=self-hosted" >> "$GITHUB_OUTPUT"
-          else
-            echo "selected=ubuntu-latest" >> "$GITHUB_OUTPUT"
-          fi
-
-  claude-code:
-    needs: select-runner
-    runs-on: ${{ needs.select-runner.outputs.selected }}
+  long-task:
+    runs-on: self-hosted
     steps:
       - name: Checkout default branch
         uses: actions/checkout@v4
