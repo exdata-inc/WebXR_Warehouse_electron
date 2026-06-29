@@ -1,29 +1,33 @@
 # 各 repo の .github/workflows/opportunistic-task.yml に置く受け手側 workflow のテンプレ。
 # ハブ repo の .github/workflows/opportunistic-worker.yml がここに workflow_dispatch を投げる。
 #
-# 配置手順（手動 or template-propagate）:
+# 仕組み（Issue ベース）:
+#   - 1 つの GitHub Issue = 1 つの長期タスク。本文に「long-task」キーワードを含めると
+#     ハブの worker の検索（org:exdata-inc is:issue state:open long-task -label:long-task-done）に拾われる
+#   - 起動されると、この workflow が Issue 本文と既存 bot コメントを読み、作業ブランチ名を確定する:
+#       1. 既存 bot コメントの先頭メタ行 `working_branch: <name>` があればそれ
+#       2. なければ Issue 本文の `working_branch: <name>` 行
+#       3. どちらも無ければ `claude/task-<issueNumber>-<title-slug>` を自動生成
+#   - claude-code-action に `working_branch` で渡し、そのブランチに commit を積む（既存 PR があれば継続）
+#   - 進捗は Issue 内の bot コメント 1 件を毎回 PATCH で上書き
+#   - タスク全体が終わったら claude が long-task-done ラベルを付け、作成者にメンション
+#
+# 配置手順:
 #   1. このファイルを対象 repo の .github/workflows/opportunistic-task.yml にコピー（ファイル名 固定）。
-#   2. 対象 repo の secrets に CLAUDE_OAUTH_URL を入れる
-#   3. 進捗 md（このファイル冒頭の inputs.progress_md で渡されるパス）を 1 つ作り、
-#      最初の「次にやること」セクションを書く。
-#   4. ハブ repo の .github/opportunistic-tasks.yml の tasks: に 1 行追加すれば、
-#      日中 30 分ごとの判定で巡ってきたタイミングで dispatch される。
+#   2. 対象 repo の secrets に CLAUDE_OAUTH_URL を入れる。
+#   3. ハブが Issue search で勝手に拾うので、対象 repo に long-task Issue を立てるだけで投入される。
 #
 # 重要:
-#   - このテンプレは 1 ステップだけ進めて commit する設計。終了まで延々と回さないこと（直近 5h 使用量を
-#     ハブ側が見て調整しているため、受け手側で長居すると見立てが崩れる）。
+#   - このテンプレは 1〜2 ステップだけ進めて commit する設計。終了まで延々と回さないこと。
 
 name: Opportunistic long-running task
 
 on:
   workflow_dispatch:
     inputs:
-      progress_md:
-        description: '進捗・タスク内容を記した md ファイルパス（リポジトリ ルートからの相対）'
+      issue_number:
+        description: 'long-task Issue 番号（このリポジトリ内）'
         required: true
-      description:
-        description: 'タスクの説明（任意・ログ用）'
-        required: false
 
 permissions:
   contents: write
@@ -41,8 +45,8 @@ env:
   OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "cumulative"
 
 concurrency:
-  # 同じ md に対する dispatch は直列化（複数同時実行で commit が衝突しないように）。
-  group: opportunistic-task-${{ inputs.progress_md }}
+  # 同じ Issue に対する dispatch は直列化（複数同時実行で commit / コメントが衝突しないように）。
+  group: opportunistic-task-${{ inputs.issue_number }}
   cancel-in-progress: false
 
 jobs:
@@ -67,12 +71,56 @@ jobs:
     needs: select-runner
     runs-on: ${{ needs.select-runner.outputs.selected }}
     steps:
-      - name: Checkout target branch
+      - name: Checkout default branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
           fetch-depth: 0
           submodules: recursive
+
+      # Issue 本文 + 既存 bot コメントから「使うブランチ名」「Issue 作成者」を決定する。
+      # bot コメントの working_branch 行が最優先 → Issue 本文の working_branch 行 → 自動生成。
+      - name: Resolve working branch
+        id: branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+
+          # Issue メタ
+          ISSUE_JSON=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}")
+          ISSUE_TITLE=$(jq -r '.title // ""' <<<"$ISSUE_JSON")
+          ISSUE_USER=$(jq -r '.user.login // ""' <<<"$ISSUE_JSON")
+          ISSUE_BODY=$(jq -r '.body // ""' <<<"$ISSUE_JSON")
+
+          # 既存 bot コメント（本文が `## opportunistic-task progress` で始まるもの 1 件）
+          BOT_BODY=$(gh api --paginate "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '[.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("## opportunistic-task progress")) | .body] | first // ""')
+
+          # 優先順位: bot コメント > Issue 本文 > 自動生成
+          extract_wb() { printf '%s\n' "$1" | grep -oE '^working_branch:[[:space:]]+\S+' | head -n1 | awk '{print $2}'; }
+          WB=$(extract_wb "$BOT_BODY")
+          [ -z "$WB" ] && WB=$(extract_wb "$ISSUE_BODY")
+          if [ -z "$WB" ]; then
+            SLUG=$(printf '%s' "$ISSUE_TITLE" \
+              | tr '[:upper:]' '[:lower:]' \
+              | sed -E 's/[^a-z0-9-]+/-/g; s/-+/-/g; s/^-//; s/-$//' \
+              | cut -c1-40)
+            WB="claude/task-${ISSUE_NUMBER}-${SLUG:-x}"
+          fi
+
+          echo "working_branch=$WB" >> "$GITHUB_OUTPUT"
+          echo "issue_user=$ISSUE_USER" >> "$GITHUB_OUTPUT"
+          # タイトルに改行や " が混入しても壊さないよう、heredoc で出力
+          {
+            echo "issue_title<<EOF"
+            printf '%s\n' "$ISSUE_TITLE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "→ Issue #${ISSUE_NUMBER} by @${ISSUE_USER}"
+          echo "→ working_branch=$WB"
 
       # ハブ repo の claude-triage.yml と同じ OAuth 取得パターン。
       - name: Fetch Claude OAuth values
@@ -108,11 +156,10 @@ jobs:
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
           model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
           github_token: ${{ github.token }}
-          # タスク継続モード：progress_md パスをそのまま task_key として渡す。
-          # action 側で同一 task_key の open PR を探し、見つかればそのブランチに commit を追加。
-          # PR description に done_marker（既定値）が含まれている場合は何もせず終了する。
-          task_key: ${{ inputs.progress_md }}
-          # 副作用を出してよいので setup_branch はデフォルト（= true）に任せる。
+          # 上のステップで確定したブランチを直接指定（action 側は sanitize せずそのまま使う）。
+          # 既存ブランチがあれば fetch & checkout、無ければ default branch から create。
+          # 同 head の open PR があれば action 側で existingPrNumber が立つ。
+          working_branch: ${{ steps.branch.outputs.working_branch }}
           allowed_tools: |
             Bash
             WebFetch
@@ -120,29 +167,58 @@ jobs:
             mcp__github_file_ops__commit_files
             mcp__github_file_ops__create_pull_request
           direct_prompt: |
-            あなたは長時間タスクの「1 ステップだけ進める」担当です。今回の対象は次のとおり。
+            あなたは Issue ベースの長期タスクの「1〜2 ステップだけ進める」担当です。
 
-            - 進捗 md: ${{ inputs.progress_md }}
-            - 補足: ${{ inputs.description }}
+            ## 対象
+            - Issue: ${{ github.repository }} #${{ inputs.issue_number }}
+            - タイトル: ${{ steps.branch.outputs.issue_title }}
+            - Issue 作成者: @${{ steps.branch.outputs.issue_user }}
+            - 作業ブランチ: ${{ steps.branch.outputs.working_branch }}（既にチェックアウト済み。別ブランチを切らない）
 
-            手順:
-            1. ${{ inputs.progress_md }} を読む。タスクの目的・完了条件・「次にやること」セクションを把握する。
-               ファイルが無ければ、テンプレ（タスク概要 / 完了条件 / これまでの進捗 / 次にやること）を新規作成して
-               次にやることを 1 件下書きし、その時点で commit して終了。
-            2. 「次にやること」から **最も小さい 1 件だけ** を選んで着手する。
-               大きすぎると感じたら、自分でさらに小分けにして「最小の 1 件」だけをやる。
-               小分けしたら、その小分け内容を一階層下げて md に追記する。
-            3. 実装→テスト/ビルド→commit。テストやビルドが落ちたら、それを直してから commit する。
-            4. ${{ inputs.progress_md }} を更新する:
-               - 完了した項目に ✅ を付ける
-               - 今回の作業で見えた新しい「次にやること」を追記
-               - 進捗メモ（詰まった箇所、判明した制約など）を簡潔に追加
-            5. 終了。**今回着手した範囲を超えて作業しないこと**（ハブの opportunistic-worker が次回の dispatch を判断する）。
+            ## 手順
+            1. `gh issue view ${{ inputs.issue_number }} --comments` で Issue 本文と全コメントを読む。
+            2. **進捗 bot コメント** を探す（本文が `## opportunistic-task progress` で始まる github-actions[bot] 投稿、Issue に最大 1 件）:
+               - 存在しない場合（= **初回**）: Issue 本文を元に下記テンプレートで新規コメントを投稿する。
+                 ```
+                 ## opportunistic-task progress
 
-            禁止事項:
-            - 進捗 md に書かれていない大規模な変更や、別タスクへの飛び火
-            - main ブランチへの直接 push（PR を作るなら可）
-            - 「あと少しだから」と複数の次タスクをまとめて消化すること
+                 working_branch: ${{ steps.branch.outputs.working_branch }}
+
+                 ### タスク概要
+                 （Issue 本文を要約）
+
+                 ### 完了条件 (DoD)
+                 - [ ] ...
+
+                 ### これまでの進捗
+                 _まだなし_
+
+                 ### 次にやること
+                 - [ ] ...
+
+                 ### 詰まり・要相談メモ
+                 _なし_
+                 ```
+               - 存在する場合: その本文を読んで現状を把握する。`working_branch:` 行は **絶対に書き換えない**。
+            3. 「次にやること」から **最小 1〜2 件だけ** 選んで着手する。大きすぎれば自分でさらに小分けして最小 1 件にする。
+            4. 実装→テスト/ビルド→commit。落ちたら直してから commit する。
+            5. 進捗 bot コメントを **編集（PATCH /repos/.../issues/comments/{id}）** して更新する:
+               - 完了した項目に ✅
+               - 新たに見えた「次にやること」を追記
+               - 詰まり/要相談メモを追加（あれば）
+            6. このブランチ（${{ steps.branch.outputs.working_branch }}）に対応する open PR がまだ無ければ、`gh pr create` で作る:
+               - title: `[long-task] ${{ steps.branch.outputs.issue_title }} (#${{ inputs.issue_number }})`
+               - body: `Issue #${{ inputs.issue_number }} の長期タスク。進捗は Issue 内の bot コメントを参照してください。`
+            7. **タスク全体が完了したと判断したとき**（進捗 bot コメントの「完了条件」が全 ✅）のみ:
+               - `gh issue edit ${{ inputs.issue_number }} --add-label long-task-done`
+               - Issue に `gh issue comment ${{ inputs.issue_number }} --body "@${{ steps.branch.outputs.issue_user }} 全タスクが完了しました。レビューをお願いします。"`
+               - PR タイトル末尾に ` [ready for review]` を付与（任意）
+
+            ## 禁止事項
+            - 別ブランチを切る／main などのデフォルトブランチに直接 push
+            - 1 dispatch で複数の大物タスクをまとめて消化する（次回 dispatch に任せる）
+            - 進捗 bot コメントの `working_branch:` 行を勝手に書き換える
+            - 中途半端な状態で long-task-done ラベルを付ける（完了条件すべて ✅ のときだけ）
         env:
-          # claude の Bash 内で `gh` を認証させるためのトークン（PR 作成/コメント等）。
+          # claude の Bash 内で `gh` を認証させるためのトークン
           GH_TOKEN: ${{ github.token }}
