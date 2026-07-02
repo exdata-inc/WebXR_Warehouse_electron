@@ -184,6 +184,8 @@ jobs:
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
           model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
           github_token: ${{ github.token }}
+          # claude-code-action の実行時間制限（デフォ 30 分 → 120 分に延長）。
+          timeout_minutes: '120'
           # 上のステップで確定したブランチを直接指定（action 側は sanitize せずそのまま使う）。
           # 既存ブランチがあれば fetch & checkout、無ければ default branch から create。
           # 同 head の open PR があれば action 側で existingPrNumber が立つ。

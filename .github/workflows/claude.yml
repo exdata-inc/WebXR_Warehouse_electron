@@ -177,6 +177,8 @@ jobs:
           claude_refresh_token: "disabled"
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
           model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+          # claude-code-action の実行時間制限（デフォ 30 分 → 120 分に延長）。
+          timeout_minutes: '120'
           # CLAUDE.md の手順に必要なツールを許可する（CI では未許可ツールは弾かれるため）。
           #   Bash      : post_slack ヘルパー（curl/jq/grep, 関数定義込み）と gh での PR 作成に必須
           #   WebFetch  : URL 明示のページ取得
