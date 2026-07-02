@@ -52,12 +52,24 @@ concurrency:
 jobs:
   long-task:
     runs-on: self-hosted
+    container:
+      image: ngtystr/rust-obfuscator-llvm:1.93.0-21.1.8-20260630
+    # この container では Actions runner が bash を自動検出できず sh フォールバックしていたため、
+    # ジョブ全体の run step を bash で実行するよう明示する。bash は image に同梱されている前提。
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout default branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+
+      - name: Prepare task environment
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory '*'
 
       # self-hosted runner には gh CLI が無いことが多いので、無ければ portable binary を
       # ~/.local/bin に展開し、GITHUB_PATH に通す（sudo 不要）。既にあれば何もしない。
@@ -172,6 +184,8 @@ jobs:
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
           model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
           github_token: ${{ github.token }}
+          # claude-code-action の実行時間制限（デフォ 30 分 → 120 分に延長）。
+          timeout_minutes: '120'
           # 上のステップで確定したブランチを直接指定（action 側は sanitize せずそのまま使う）。
           # 既存ブランチがあれば fetch & checkout、無ければ default branch から create。
           # 同 head の open PR があれば action 側で existingPrNumber が立つ。
@@ -218,10 +232,31 @@ jobs:
                - 存在する場合: その本文を読んで現状を把握する。`working_branch:` 行は **絶対に書き換えない**。
             3. 「次にやること」から **最小 1〜2 件だけ** 選んで着手する。大きすぎれば自分でさらに小分けして最小 1 件にする。
             4. 実装→テスト/ビルド→commit。落ちたら直してから commit する。
-            5. 進捗 bot コメントを **編集（PATCH /repos/.../issues/comments/{id}）** して更新する:
+            5. 進捗 bot コメントを **編集** して更新する:
                - 完了した項目に ✅
                - 新たに見えた「次にやること」を追記
                - 詰まり/要相談メモを追加（あれば）
+
+               **更新の絶対ルール（過去にコメント全文を吹き飛ばす事故があったので厳守）**:
+               1. **更新前に現状を必ずバックアップ**:
+                  ```
+                  COMMENT_ID=<対象 progress コメントの id>
+                  gh api "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" --jq '.body' > /tmp/progress_body.before.md
+                  ```
+               2. **新しい本文は必ずファイルに書き出してから送る**:
+                  ```
+                  # 推奨: gh の --body-file を使う
+                  gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
+                    -F body=@/tmp/progress_body.after.md
+                  ```
+                  注意:
+                  - `-F`（**大文字 F**）が `@file` 記法でファイル内容を読む。`-f`（小文字 f）は **文字列扱い** なので `@/tmp/...` という 22 文字がそのまま本文として書き込まれてしまう。**必ず `-F`**。
+                  - `--body "<長文>"` で直接渡すのは、シェルエスケープの事故を招くので避ける。一旦ファイル経由。
+               3. **書き込んだ後、即時に再取得して検証**:
+                  ```
+                  gh api "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" --jq '.body' > /tmp/progress_body.actual.md
+                  ```
+                  `/tmp/progress_body.actual.md` が `## opportunistic-task progress` で始まっていない、または 100 文字未満なら **壊れた**と判断し、`/tmp/progress_body.before.md` の内容を `-F body=@...` で復元する。復元後は Issue に新規コメントで「⚠️ progress コメント更新で異常を検知して復元した」旨を残して終了する。
             6. このブランチ（${{ steps.branch.outputs.working_branch }}）に対応する open PR がまだ無ければ、`gh pr create` で作る:
                - title: `[long-task] ${{ steps.branch.outputs.issue_title }} (#${{ inputs.issue_number }})`
                - body: `Issue #${{ inputs.issue_number }} の長期タスク。進捗は Issue 内の bot コメントを参照してください。`
@@ -238,3 +273,15 @@ jobs:
         env:
           # claude の Bash 内で `gh` を認証させるためのトークン
           GH_TOKEN: ${{ github.token }}
+
+      # このジョブはコンテナ内で root として動くため、checkout / cargo が生成した
+      # ファイルは host 上で root 所有になる。次に同じ self-hosted runner で
+      # コンテナを使わないワークフロー(main 等)が動くと、runner ユーザーがそれらを
+      # 削除できず checkout(git clean) が "permission denied" でコケる。
+      # そこで (1) 所有者をマウント元 /__w(= runner ユーザー)に戻し、(2) 中身を削除する。
+      # ビルドが途中で失敗しても必ず後始末されるよう if: always() を付ける。
+      - name: Cleanup Directory
+        if: always()
+        run: |
+          chown -R --reference=/__w /__w 2>/dev/null || true
+          rm -rf -- "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.[!.]* "$GITHUB_WORKSPACE"/..?* 2>/dev/null || true
