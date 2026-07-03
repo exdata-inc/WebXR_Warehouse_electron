@@ -43,6 +43,7 @@ env:
   OTEL_EXPORTER_OTLP_ENDPOINT: "https://otlp-gateway-prod-ap-southeast-0.grafana.net/otlp"
   OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Basic Njc0MTA2OmdsY19leUp2SWpvaU9EZ3pOVE0ySWl3aWJpSTZJbk4wWVdOckxUWTNOREV3TmkxcGJuUmxaM0poZEdsdmJpMXZjbUZqYkdVdFpYaGtZWFJoTFdOcFlTMHhJaXdpYXlJNklqRjVlVFl5TjFjNE4wVTRSMDlWWmxneWNuazJlVFpUYnlJc0ltMGlPbnNpY2lJNkluQnliMlF0WVhBdGMyOTFkR2hsWVhOMExUQWlmWDA9"
   OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "cumulative"
+  OTEL_RESOURCE_ATTRIBUTES: "adhd_user=gh-op-task"
 
 concurrency:
   # 同じ Issue に対する dispatch は直列化（複数同時実行で commit / コメントが衝突しないように）。
