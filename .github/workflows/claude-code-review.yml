@@ -24,6 +24,7 @@ env:
   OTEL_EXPORTER_OTLP_ENDPOINT: "https://otlp-gateway-prod-ap-southeast-0.grafana.net/otlp"
   OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Basic Njc0MTA2OmdsY19leUp2SWpvaU9EZ3pOVE0ySWl3aWJpSTZJbk4wWVdOckxUWTNOREV3TmkxcGJuUmxaM0poZEdsdmJpMXZjbUZqYkdVdFpYaGtZWFJoTFdOcFlTMHhJaXdpYXlJNklqRjVlVFl5TjFjNE4wVTRSMDlWWmxneWNuazJlVFpUYnlJc0ltMGlPbnNpY2lJNkluQnliMlF0WVhBdGMyOTFkR2hsWVhOMExUQWlmWDA9"
   OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: "cumulative"
+  OTEL_RESOURCE_ATTRIBUTES: "adhd_user=gh-claude-review"
 
 jobs:
   select-runner:
@@ -115,8 +116,8 @@ jobs:
           claude_access_token: ${{ steps.claude-oauth.outputs.access_token }}
           claude_refresh_token: "disabled"
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+          # Optional: Specify model (defaults to Claude Sonnet 5, uncomment for Claude Opus 5)
+          model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-5' }}
           # claude-code-action の実行時間制限（デフォ 30 分 → 120 分に延長）。
           timeout_minutes: '120'
 
