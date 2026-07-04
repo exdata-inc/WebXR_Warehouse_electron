@@ -99,6 +99,36 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/gh" --version
 
+      # everything-claude-code (ECC) を ~/.claude/ 配下にインストールする。
+      # install.sh は内部で `npm install` → `node scripts/install-apply.js --profile full` を叩くだけなので、
+      # rust-obfuscator コンテナ同梱の bun でその 2 手を直接踏む（node/npm を用意しなくて済む）。
+      # 結果として agents / skills / rules / hooks 一式が ~/.claude/{agents,skills,rules,hooks}/ecc/ に配置される。
+      # ECC のリビジョンは vars.ECC_REF で差し替え可能（未設定なら main の HEAD）。
+      - name: Install everything-claude-code (ECC)
+        env:
+          ECC_REF: ${{ vars.ECC_REF || 'main' }}
+        run: |
+          set -euo pipefail
+          if ! command -v bun >/dev/null 2>&1; then
+            echo "bun が見つからない。rust-obfuscator コンテナには入っている想定なので、image の変更等で消えていないか確認して。" >&2
+            exit 1
+          fi
+          echo "bun version: $(bun --version)"
+          tmp=$(mktemp -d)
+          git clone https://github.com/affaan-m/ECC "$tmp/ECC"
+          git -C "$tmp/ECC" checkout "$ECC_REF"
+          cd "$tmp/ECC"
+          bun install
+          bun scripts/install-apply.js --profile full
+          echo "=== ~/.claude 配下 ==="
+          ls -la "$HOME/.claude" 2>/dev/null || echo "(空)"
+          for d in agents skills rules hooks; do
+            if [ -d "$HOME/.claude/$d/ecc" ]; then
+              echo "-- $d/ecc --"
+              ls "$HOME/.claude/$d/ecc" | head -n 20
+            fi
+          done
+
       # Issue 本文 + 既存 bot コメントから「使うブランチ名」「Issue 作成者」を決定する。
       # bot コメントの working_branch 行が最優先 → Issue 本文の working_branch 行 → 自動生成。
       - name: Resolve working branch
@@ -199,6 +229,16 @@ jobs:
             mcp__github_file_ops__create_pull_request
           direct_prompt: |
             あなたは Issue ベースの長期タスクの「1〜2 ステップだけ進める」担当です。
+
+            ## everything-claude-code (ECC) が有効
+            この runner には ECC (https://github.com/affaan-m/ECC) が `--profile full` でインストール済みで、
+            `~/.claude/{agents,skills,rules,hooks}/ecc/` に一式が配置されています。ECC の agents (planner /
+            code-reviewer / security-reviewer / language-specific reviewers 等) や skills (tdd-workflow /
+            security-scan / research-first 等) を **本タスクに関係するものは積極的に呼び出して**ください
+            （例: 実装前に planner agent で最小ステップを設計、実装後に code-reviewer / security-reviewer
+            を通す、テスト追加時は tdd-workflow skill を利用、など）。
+            ただし本テンプレの「1 dispatch = 1〜2 ステップ」原則は変えない（ECC を回すために dispatch を
+            膨らませない）。skill / agent は 1 ステップの品質を上げるための道具として使う。
 
             ## 対象
             - Issue: ${{ github.repository }} #${{ inputs.issue_number }}
