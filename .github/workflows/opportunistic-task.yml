@@ -62,10 +62,20 @@ jobs:
         shell: bash
     steps:
       - name: Checkout default branch
+        # 一部 submodule（外部 org や SSH 形式 URL 等）で fetch がコケても、親 repo が
+        # 取れていれば claude 側で必要な submodule だけ後から init する運用にできる。
+        # ここで赤くしてジョブ全体を止めない。
+        continue-on-error: true
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+          # private な submodule を含む repo では default の GITHUB_TOKEN では
+          # submodule の clone に権限が無くコケる。GH_TOKEN_SUBMODULE_RW が設定されて
+          # いればそれを使い（各 submodule 上流にも contents:read を持つ想定）、
+          # 未設定なら従来どおり GITHUB_TOKEN で動く。checkout@v4 は with.token を
+          # submodule fetch にも使う。
+          token: ${{ secrets.GH_TOKEN_SUBMODULE_RW || github.token }}
 
       - name: Prepare task environment
         run: |
