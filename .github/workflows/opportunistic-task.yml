@@ -314,6 +314,10 @@ jobs:
         env:
           # claude の Bash 内で `gh` を認証させるためのトークン
           GH_TOKEN: ${{ github.token }}
+          # submodule 内のコード修正まで踏み込む必要が出たとき、claude が git submodule update /
+          # commit / push に使うトークン（CLAUDE.md の "submodule を操作するときのお願い" 節参照）。
+          # secrets に未登録なら空文字が渡り、claude はその場合「権限外」と判断してコメントで終える。
+          GH_TOKEN_SUBMODULE_RW: ${{ secrets.GH_TOKEN_SUBMODULE_RW }}
 
       # このジョブはコンテナ内で root として動くため、checkout / cargo が生成した
       # ファイルは host 上で root 所有になる。次に同じ self-hosted runner で

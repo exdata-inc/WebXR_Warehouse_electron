@@ -196,6 +196,10 @@ jobs:
           # ※ GITHUB_TOKEN 作成の PR は他ワークフロー（claude-code-review 等）を起動しない点に注意。
           #    レビュー bot まで起動させたい場合は PAT（例: secrets.GH_DISPATCH_TOKEN）に差し替える。
           GH_TOKEN: ${{ github.token }}
+          # submodule 内のコード修正まで踏み込む必要が出たとき、claude が git submodule update /
+          # commit / push に使うトークン（CLAUDE.md の "submodule を操作するときのお願い" 節参照）。
+          # secrets に未登録なら空文字が渡り、claude はその場合「権限外」と判断してコメントで終える。
+          GH_TOKEN_SUBMODULE_RW: ${{ secrets.GH_TOKEN_SUBMODULE_RW }}
 
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
