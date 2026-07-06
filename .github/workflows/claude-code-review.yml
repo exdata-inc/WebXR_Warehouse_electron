@@ -27,23 +27,6 @@ env:
   OTEL_RESOURCE_ATTRIBUTES: "adhd_user=gh-claude-review"
 
 jobs:
-  select-runner:
-    runs-on: ubuntu-latest
-    outputs:
-      selected: ${{ steps.set-runner.outputs.selected }}
-    steps:
-      - id: set-runner
-        run: |
-          online=$(curl -s -H "Authorization: Bearer ${{ secrets.TOKEN_READ_SELF_HOSTED_RUNNERS }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/orgs/${{ github.repository_owner }}/actions/runners \
-            | jq '[.runners[] | select(.status == "online")] | length')
-          if [ "$online" -gt 0 ]; then
-            echo "selected=self-hosted" >> "$GITHUB_OUTPUT"
-          else
-            echo "selected=ubuntu-latest" >> "$GITHUB_OUTPUT"
-          fi
-
   claude-review:
     # Optional: Filter by PR author
     # if: |
@@ -51,8 +34,10 @@ jobs:
     #   github.event.pull_request.user.login == 'new-developer' ||
     #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
 
-    needs: select-runner
-    runs-on: ${{ needs.select-runner.outputs.selected }}
+    runs-on: self-hosted
+    # rate limit 時に resetsAt(最大 5h 先)まで待ってから --resume で再開するため、
+    # デフォルト 360 分では「実行 120 分 + 待機 + 再開 120 分」が収まらない。余裕を持って 12h。
+    timeout-minutes: 720
     container:
       image: ngtystr/rust-obfuscator-llvm:1.93.0-21.1.8-20260630
     # この container では Actions runner が bash を自動検出できず sh フォールバックしていたため、
@@ -118,8 +103,17 @@ jobs:
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
           # Optional: Specify model (defaults to Claude Sonnet 5, uncomment for Claude Opus 5)
           model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-5' }}
-          # claude-code-action の実行時間制限（デフォ 30 分 → 120 分に延長）。
-          timeout_minutes: '120'
+          # claude-code-action の実行時間制限（デフォ 30 分 → 720 分に延長）。
+          timeout_minutes: '720'
+          # rate limit 対策の retry。stream-json の rate_limit_event を構造的に検知し、
+          # resetsAt(リセット時刻)まで一括待機 → `--resume <session-id>` で同一セッションを
+          # 再開する。会話コンテキストが引き継がれるので、中断までに使ったトークン
+          # (数十ターン分の作業)が無駄にならない。resetsAt が取れない失敗は 60s 間隔で
+          # 再試行(上限 120 回)。rate limit 以外の失敗は従来どおり即 fail。
+          # 単発待機の上限はデフォルト 8h(retry_max_wait_seconds)。job の timeout-minutes: 720
+          # とセットで運用する。
+          max_retries: '120'
+          retry_interval_seconds: '60'
 
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
