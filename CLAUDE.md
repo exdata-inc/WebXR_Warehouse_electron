@@ -43,7 +43,7 @@ submodule 内のコードに手を入れないと修正できないケースで�
 6. トークン値そのものは echo / log / commit しないこと（`insteadOf` 経由で使うので露出させる必要は無い）。
 
 ## 手順
-1. **Slack 情報を取り出す**（ハブと同じ）。
+1. **Slack 情報を取り出す**（Issue 本文の `<!-- slackmeta {...} -->` から `channel` と `ts` を抜き出す）。
    ```bash
    META=$(grep -oP '(?<=slackmeta ).*(?= -->)' <<< "$ISSUE_BODY")
    export SLACK_CHANNEL=$(jq -r .channel <<< "$META")
