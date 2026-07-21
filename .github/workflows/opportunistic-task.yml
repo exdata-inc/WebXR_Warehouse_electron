@@ -235,6 +235,18 @@ jobs:
           # 再開する（rate limit retry と同じ仕組み。max_retries を消費する）。
           claude_oauth_url: ${{ secrets.CLAUDE_OAUTH_URL }}
           model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-5' }}
+          # モデル別の限度切れ対策(例: claude-fable-5 の限度だけ先に尽きるケース)。
+          # 上の model を起点に、rate limit / モデル利用不可(404)を踏んだら序列のより
+          # 下位モデルへ --resume で切り替えて作業を継続する(セッション・会話は引き継ぐ)。
+          # 序列は「上位 → 下位」。model が序列内にあればその位置から下だけを使い、
+          # 無ければ model の次に序列の先頭から続く。リセット時刻まで待った後は序列の
+          # 先頭(= 起点モデル)に戻る。新モデルが出たらここに追記するだけでよい。
+          model_fallback_chain: |
+            claude-fable-5
+            claude-opus-4-8[1m]
+            claude-opus-4-8
+            claude-sonnet-5
+            claude-haiku-4-5
           github_token: ${{ github.token }}
           # claude-code-action の実行時間制限（デフォ 30 分 → 720 分に延長）。
           timeout_minutes: '720'
