@@ -56,6 +56,9 @@ jobs:
           set -euo pipefail
           git config --global --add safe.directory '*'
 
+      # ここで取るのは「初回分」のトークン。長時間実行中に期限切れになるケースは、
+      # claude-code-action に claude_oauth_url を渡すことで action 側が同じ URL から
+      # 再取得する（下の step の該当コメント参照）。
       - name: Fetch Claude OAuth values
         id: claude-oauth
         env:
@@ -101,6 +104,11 @@ jobs:
           claude_access_token: ${{ steps.claude-oauth.outputs.access_token }}
           claude_refresh_token: "disabled"
           claude_expires_at: ${{ steps.claude-oauth.outputs.expires_at }}
+          # 長時間実行中に上の access token が期限切れになる対策。URL 自体を渡しておくと
+          # action 側が (1) 期限が近づいたら再取得して ~/.claude/.credentials.json を
+          # 書き換え、(2) それでも認証エラーで落ちたら再取得 + --resume で同一セッションを
+          # 再開する（rate limit retry と同じ仕組み。max_retries を消費する）。
+          claude_oauth_url: ${{ secrets.CLAUDE_OAUTH_URL }}
           # Optional: Specify model (defaults to Claude Sonnet 5, uncomment for Claude Opus 5)
           model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-5' }}
           # claude-code-action の実行時間制限（デフォ 30 分 → 720 分に延長）。
