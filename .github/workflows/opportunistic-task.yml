@@ -243,6 +243,8 @@ jobs:
           # 先頭(= 起点モデル)に戻る。新モデルが出たらここに追記するだけでよい。
           model_fallback_chain: |
             claude-fable-5
+            claude-opus-5[1m]
+            claude-opus-5
             claude-opus-4-8[1m]
             claude-opus-4-8
             claude-sonnet-5
