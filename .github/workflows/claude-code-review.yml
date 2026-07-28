@@ -56,6 +56,73 @@ jobs:
           set -euo pipefail
           git config --global --add safe.directory '*'
 
+      # self-hosted runner には gh CLI が無いことが多いので、無ければ portable binary を
+      # ~/.local/bin に展開し、GITHUB_PATH に通す（sudo 不要）。既にあれば何もしない。
+      # 後続の long-task Issue 解決 / long-task-done 剥がし step が gh を使う。
+      - name: Ensure gh CLI is available
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            echo "gh CLI already installed: $(gh --version | head -n1)"
+            exit 0
+          fi
+          VERSION="2.62.0"
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64)  GH_ARCH=amd64 ;;
+            aarch64) GH_ARCH=arm64 ;;
+            *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;;
+          esac
+          mkdir -p "$HOME/.local/bin"
+          tmp=$(mktemp -d)
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${VERSION}/gh_${VERSION}_linux_${GH_ARCH}.tar.gz" \
+            | tar -xz -C "$tmp"
+          install -m 0755 "$tmp/gh_${VERSION}_linux_${GH_ARCH}/bin/gh" "$HOME/.local/bin/gh"
+          rm -rf "$tmp"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/gh" --version
+
+      # この PR が opportunistic-task.yml の長期タスク由来なら、その元 Issue 番号を突き止める。
+      # opportunistic-task が作る PR は
+      #   title: `[long-task] <Issue タイトル> (#<issue>)`
+      #   body : `Issue #<issue> の長期タスク。...`
+      # なので、title / body 中の `#<n>` を候補にして「Issue（PR ではない）かつ long-task 系」を選ぶ。
+      # 見つからなければ空を返し、後段の差し戻し step は丸ごとスキップされる（通常の PR レビューと同じ挙動）。
+      # PR title / body は必ず env 経由で渡す（run 内に ${{ }} で直書きするとスクリプトインジェクションになる）。
+      - name: Resolve linked long-task issue
+        id: longtask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          CANDIDATES=$(printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" \
+            | { grep -oE '#[0-9]+' || true; } | tr -d '#' | awk '!seen[$0]++')
+
+          FOUND=""
+          for n in $CANDIDATES; do
+            json=$(gh api "repos/${REPO}/issues/${n}" 2>/dev/null) || continue
+            # PR は /issues/<n> でも引けてしまうので .pull_request で除外する
+            [ "$(jq -r 'has("pull_request")' <<<"$json")" = "true" ] && continue
+            labels=$(jq -r '[.labels[].name] | join(" ")' <<<"$json")
+            body=$(jq -r '.body // ""' <<<"$json")
+            case " $labels " in
+              *" long-task-done "*|*" long-task "*) FOUND="$n"; break ;;
+            esac
+            # ラベル運用が無い repo 向けに、本文の long-task キーワードでも拾う
+            # （ハブの worker も本文キーワードで検索している）
+            if grep -qi 'long-task' <<<"$body"; then FOUND="$n"; break; fi
+          done
+
+          echo "issue_number=$FOUND" >> "$GITHUB_OUTPUT"
+          if [ -n "$FOUND" ]; then
+            echo "→ この PR は long-task Issue #${FOUND} 由来"
+          else
+            echo "→ long-task Issue に紐づかない通常の PR"
+          fi
+
       # ここで取るのは「初回分」のトークン。長時間実行中に期限切れになるケースは、
       # claude-code-action に claude_oauth_url を渡すことで action 側が同じ URL から
       # 再取得する（下の step の該当コメント参照）。
@@ -138,15 +205,42 @@ jobs:
           retry_interval_seconds: '60'
 
           # Direct prompt for automated review (no @claude mention needed)
+          # 末尾の verdict マーカーは後段の "Reopen long-task on critical findings" step が
+          # パースして long-task-done ラベルの剥がし判定に使う。書式を変えるときは両方直すこと。
           direct_prompt: |
-            Please review this pull request and provide feedback on:
+            この pull request をレビューして、日本語でフィードバックしてください。観点:
             - Code quality and best practices
             - Potential bugs or issues
             - Performance considerations
             - Security concerns
             - Test coverage
 
-            Be constructive and helpful in your feedback.
+            建設的で具体的に（該当箇所は `path:line` 形式で示す）。
+
+            ## 指摘の重大度分類（必須）
+            各指摘に `critical` / `major` / `minor` のいずれかを付けてください。
+
+            - `critical`: **マージすると壊れる/危険なもの**だけ。例: 明確なバグ・ロジック誤り、
+              クラッシュ、データ破壊・データ欠損、セキュリティ脆弱性（インジェクション・権限漏れ・
+              シークレット露出）、ビルド/型/テストが通らない、既存機能のリグレッション。
+            - `major`: 直すべきだが壊れてはいない設計・保守性・性能上の問題。
+            - `minor`: nit、命名、コメント、好みの範囲。
+
+            **`critical` は厳しく判定してください（保守的に）**。スタイル・好み・「あったら良いテスト」は
+            critical にしない。`critical` があると、この PR の元になった長期タスク Issue の
+            `long-task-done` ラベルが自動で外れ、bot が自動修正を再開します（人間の手を介さない）。
+            つまり critical の誤検知はムダな自動作業を発生させます。
+
+            `critical` が 1 件以上あるときは、レビュー本文に `## Critical` 見出しを作り、
+            その配下に修正すべき内容を箇条書き（`path:line` + 何が起きるか + どう直すか）で
+            まとめてください。修正担当の bot はここだけを見て作業します。
+
+            ## 出力の最後に必ず verdict を付ける
+            レビュー本文の **最終行** に、下記のどちらか **1 行だけ** をそのまま出力してください
+            （HTML コメントなので人間には見えません。機械が読みます）。
+
+            - critical が 1 件以上あるとき: `<!-- review-verdict: critical -->`
+            - critical が 0 件のとき（major/minor だけ、または指摘なし）: `<!-- review-verdict: ok -->`
 
           # Optional: Customize review based on file types
           # direct_prompt: |
@@ -169,6 +263,119 @@ jobs:
           # if: |
           #   !contains(github.event.pull_request.title, '[skip-review]') &&
           #   !contains(github.event.pull_request.title, '[WIP]')
+
+      # レビューで critical 指摘が出た場合、元の long-task Issue から long-task-done を外して
+      # opportunistic-task の抽選対象に戻す（= 人間の再対応待ちにせず、bot が自動で直しに行く）。
+      #
+      # 判定材料は上の review step が PR に投稿したコメント末尾の
+      #   <!-- review-verdict: critical | ok -->
+      # マーカー。PR のコメント / review を updated_at 順に見て **最新のもの** を採用する
+      # （synchronize で何度もレビューが走るので、古い critical を掘り返さないため）。
+      #
+      # 差し戻しは「Issue に long-task-done が付いている（= bot が完了宣言してレビュー待ち）」
+      # ときだけ行う。まだ作業中の PR に critical が出ても、次の dispatch で普通に続きを
+      # やるのでラベルを触る必要はない。
+      #
+      # 無限ピンポン防止: 自動差し戻しは MAX_AUTO_REVIEW_ROUNDS 回まで（既定 3）。
+      # 超えたらラベルは外さず、Issue 作成者にメンションして人間に渡す。
+      - name: Reopen long-task on critical findings
+        if: steps.longtask.outputs.issue_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          ISSUE_NUMBER: ${{ steps.longtask.outputs.issue_number }}
+          MAX_ROUNDS: ${{ vars.MAX_AUTO_REVIEW_ROUNDS || '3' }}
+        run: |
+          set -euo pipefail
+
+          # --- 1. 最新の verdict マーカー付きコメントを取る ---
+          LATEST=$(
+            {
+              gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+                --jq '.[] | {t: (.updated_at // .created_at // ""), b: (.body // ""), u: (.html_url // "")}'
+              gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+                --jq '.[] | {t: (.submitted_at // ""), b: (.body // ""), u: (.html_url // "")}'
+            } | jq -s -c '
+                [ .[] | select(.b | test("<!--[[:space:]]*review-verdict:")) ]
+                | sort_by(.t) | (last // {})'
+          )
+          VERDICT=$(jq -r '.b // ""' <<<"$LATEST" \
+            | { grep -oiE 'review-verdict:[[:space:]]*(critical|ok)' || true; } \
+            | tail -n1 | awk -F: '{print $2}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+          REVIEW_URL=$(jq -r '.u // ""' <<<"$LATEST")
+
+          if [ "$VERDICT" != "critical" ]; then
+            echo "verdict=${VERDICT:-（マーカー無し）} → ラベルはそのまま（人間のレビュー待ち）"
+            exit 0
+          fi
+
+          # --- 2. long-task-done が付いているときだけ差し戻す ---
+          ISSUE_JSON=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}")
+          LABELS=$(jq -r '[.labels[].name] | join(" ")' <<<"$ISSUE_JSON")
+          ISSUE_USER=$(jq -r '.user.login // ""' <<<"$ISSUE_JSON")
+          ISSUE_STATE=$(jq -r '.state // ""' <<<"$ISSUE_JSON")
+          ISSUE_URL=$(jq -r '.html_url // ""' <<<"$ISSUE_JSON")
+
+          case " $LABELS " in
+            *" long-task-done "*) ;;
+            *) echo "Issue ${ISSUE_URL} に long-task-done が無い（まだ作業中）→ 何もしない"; exit 0 ;;
+          esac
+
+          # --- 3. 自動差し戻しのラウンド数（既存の review-feedback コメント数 + 1）---
+          ROUNDS=$(gh api --paginate "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '[ .[] | select((.body // "") | test("<!--[[:space:]]*review-feedback[[:space:]]")) ] | length')
+          ROUND=$((ROUNDS + 1))
+          echo "自動差し戻し round=${ROUND} / 上限=${MAX_ROUNDS}"
+
+          if [ "$ROUND" -gt "$MAX_ROUNDS" ]; then
+            # YAML ブロックスカラー内では heredoc の終端子を行頭に置けないので printf で組む
+            printf '%s\n' \
+              "## 🛑 自動修正の上限に到達" \
+              "" \
+              "自動レビューで critical 指摘が出ましたが、自動差し戻しは既に ${MAX_ROUNDS} 回行っているため" \
+              "\`long-task-done\` は外しません（bot と reviewer の無限ピンポン防止）。" \
+              "" \
+              "@${ISSUE_USER} 人間による判断をお願いします。" \
+              "" \
+              "- PR: ${PR_URL}" \
+              "- レビュー: ${REVIEW_URL}" \
+              "- 再開したいときは \`long-task-done\` ラベルを手で外してください。" \
+              > /tmp/review-giveup.md
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file /tmp/review-giveup.md
+            exit 0
+          fi
+
+          # --- 4. ラベルを外して差し戻し、修正指示を Issue に残す ---
+          gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label long-task-done
+          if [ "$ISSUE_STATE" = "closed" ]; then
+            # ハブの worker は state:open しか拾わないので開け直す
+            gh issue reopen "$ISSUE_NUMBER" --repo "$REPO"
+          fi
+
+          printf '%s\n' \
+            "<!-- review-feedback pr=${PR_NUMBER} round=${ROUND} -->" \
+            "## ⚠️ 自動レビューで critical 指摘 (round ${ROUND}/${MAX_ROUNDS})" \
+            "" \
+            "- PR: ${PR_URL}" \
+            "- レビュー本文（\`## Critical\` 見出しを参照）: ${REVIEW_URL}" \
+            "" \
+            "\`long-task-done\` ラベルを外しました。次の opportunistic-task dispatch は" \
+            "**この critical 指摘の解消を最優先**で進めてください。" \
+            "" \
+            "- critical 指摘を進捗コメントの「完了条件 (DoD)」へ未チェック項目として追加すること。" \
+            "- 対応が終わったら、**このコメントの末尾に \`resolved: yes\` の行を追記**してから" \
+            "  \`long-task-done\` を付け直すこと。" \
+            "- \`resolved: yes\` が無い review-feedback コメントが残っている間は" \
+            "  \`long-task-done\` を付けないこと。" \
+            > /tmp/review-feedback.md
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file /tmp/review-feedback.md
+
+          gh pr comment "$PR_NUMBER" --repo "$REPO" \
+            --body "critical 指摘があったため、元の long-task Issue の \`long-task-done\` を外して自動修正キューへ戻しました: ${ISSUE_URL}"
+
+          echo "→ Issue ${ISSUE_URL} の long-task-done を外しました"
 
       # このジョブはコンテナ内で root として動くため、checkout / cargo が生成した
       # ファイルは host 上で root 所有になる。次に同じ self-hosted runner で

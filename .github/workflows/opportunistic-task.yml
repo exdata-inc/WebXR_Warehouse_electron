@@ -11,6 +11,10 @@
 #   - claude-code-action に `working_branch` で渡し、そのブランチに commit を積む（既存 PR があれば継続）
 #   - 進捗は Issue 内の bot コメント 1 件を毎回 PATCH で上書き
 #   - タスク全体が終わったら claude が long-task-done ラベルを付け、作成者にメンション
+#   - その PR を claude-code-review.yml がレビューし、**critical 指摘があると**
+#     long-task-done を自動で外して Issue に `<!-- review-feedback ... -->` コメントを残す。
+#     → 次の dispatch でその critical 指摘の修正が最優先で進む（人間の再対応を待たない）。
+#     自動差し戻しは vars.MAX_AUTO_REVIEW_ROUNDS 回まで（既定 3、claude-code-review.yml 側で制御）。
 #
 # 配置手順:
 #   1. このファイルを対象 repo の .github/workflows/opportunistic-task.yml にコピー（ファイル名 固定）。
@@ -315,9 +319,26 @@ jobs:
                  _なし_
                  ```
                - 存在する場合: その本文を読んで現状を把握する。`working_branch:` 行は **絶対に書き換えない**。
-            3. 「次にやること」から **最小 1〜2 件だけ** 選んで着手する。大きすぎれば自分でさらに小分けして最小 1 件にする。
-            4. 実装→テスト/ビルド→commit。落ちたら直してから commit する。
-            5. 進捗 bot コメントを **編集** して更新する:
+            3. **レビュー差し戻しの確認（最優先）**。Issue コメントの中に、本文が
+               `<!-- review-feedback pr=<n> round=<r> -->` で始まる bot コメントがあるか調べる。
+               ```
+               gh api --paginate "repos/${{ github.repository }}/issues/${{ inputs.issue_number }}/comments" \
+                 --jq '.[] | select((.body // "") | test("<!--[[:space:]]*review-feedback[[:space:]]")) | {id, body}'
+               ```
+               - 本文に `resolved: yes` の行が **無い** ものが 1 件以上あれば、それは
+                 「自動レビューで critical 指摘が出て差し戻された」状態。**そちらを最優先で対応する**:
+                 1. コメント内の PR 番号から `gh pr view <n> --comments` でレビュー本文を読み、
+                    `## Critical` 配下の指摘を把握する。
+                 2. 進捗 bot コメントの「完了条件 (DoD)」に critical 指摘を未チェック項目として追記し、
+                    「次にやること」の先頭に置く（更新は下記 6 の絶対ルールに従う）。
+                 3. 通常どおり最小 1〜2 件だけ直して commit する（一度に全部やらなくてよい）。
+                 4. その review-feedback コメントの critical 指摘を **すべて** 直し切ったときだけ、
+                    そのコメントの末尾に `resolved: yes` の行を追記する（バックアップ → `-F body=@file`
+                    → 再取得検証は 6 と同じ手順で）。まだ残っているなら追記しない。
+               - `resolved: yes` 付きのものだけ、または 1 件も無ければ、通常の長期タスクとして続ける。
+            4. 「次にやること」から **最小 1〜2 件だけ** 選んで着手する。大きすぎれば自分でさらに小分けして最小 1 件にする。
+            5. 実装→テスト/ビルド→commit。落ちたら直してから commit する。
+            6. 進捗 bot コメントを **編集** して更新する:
                - 完了した項目に ✅
                - 新たに見えた「次にやること」を追記
                - 詰まり/要相談メモを追加（あれば）
@@ -342,19 +363,32 @@ jobs:
                   gh api "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" --jq '.body' > /tmp/progress_body.actual.md
                   ```
                   `/tmp/progress_body.actual.md` が `## opportunistic-task progress` で始まっていない、または 100 文字未満なら **壊れた**と判断し、`/tmp/progress_body.before.md` の内容を `-F body=@...` で復元する。復元後は Issue に新規コメントで「⚠️ progress コメント更新で異常を検知して復元した」旨を残して終了する。
-            6. このブランチ（${{ steps.branch.outputs.working_branch }}）に対応する open PR がまだ無ければ、`gh pr create` で作る:
+            7. このブランチ（${{ steps.branch.outputs.working_branch }}）に対応する open PR がまだ無ければ、`gh pr create` で作る:
                - title: `[long-task] ${{ steps.branch.outputs.issue_title }} (#${{ inputs.issue_number }})`
                - body: `Issue #${{ inputs.issue_number }} の長期タスク。進捗は Issue 内の bot コメントを参照してください。`
-            7. **タスク全体が完了したと判断したとき**（進捗 bot コメントの「完了条件」が全 ✅）のみ:
+
+               PR 本文には **必ずこの Issue 番号を `#${{ inputs.issue_number }}` の形で残す**
+               （レビュー側 workflow が PR title / body の `#<n>` から元 Issue を逆引きして
+               long-task-done を操作するため）。既存 PR がある場合もこの記述を消さない。
+            8. **タスク全体が完了したと判断したとき**（進捗 bot コメントの「完了条件」が全 ✅、
+               **かつ** 3 で見た未解決（`resolved: yes` 無し）の review-feedback コメントが 0 件）のみ:
                - `gh issue edit ${{ inputs.issue_number }} --add-label long-task-done`
                - Issue に `gh issue comment ${{ inputs.issue_number }} --body "@${{ steps.branch.outputs.issue_user }} 全タスクが完了しました。レビューをお願いします。"`
                - PR タイトル末尾に ` [ready for review]` を付与（任意）
+
+               このラベルを付けると自動レビュー（claude-code-review.yml）の結果次第で
+               **critical 指摘があればラベルが自動で外れ、次の dispatch に差し戻される**。
+               それは想定挙動なので、差し戻されたら 3 の手順で淡々と直すこと。
 
             ## 禁止事項
             - 別ブランチを切る／main などのデフォルトブランチに直接 push
             - 1 dispatch で複数の大物タスクをまとめて消化する（次回 dispatch に任せる）
             - 進捗 bot コメントの `working_branch:` 行を勝手に書き換える
             - 中途半端な状態で long-task-done ラベルを付ける（完了条件すべて ✅ のときだけ）
+            - 未解決の review-feedback コメント（`resolved: yes` 無し）が残っているのに
+              long-task-done を付ける
+            - review-feedback コメントの critical 指摘を「直さずに」`resolved: yes` を書く／
+              コメント自体を削除・改変して差し戻しを消す
         env:
           # claude の Bash 内で `gh` を認証させるためのトークン
           GH_TOKEN: ${{ github.token }}
