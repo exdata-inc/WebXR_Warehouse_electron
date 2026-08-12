@@ -42,7 +42,7 @@ jobs:
     # デフォルト 360 分では「実行 120 分 + 待機 + 再開 120 分」が収まらない。余裕を持って 12h。
     timeout-minutes: 720
     container:
-      image: ngtystr/rust-obfuscator-llvm:1.93.0-21.1.8-20260710
+      image: ngtystr/rust-dev-env:1.93.0-21.1.8-20260812
     # この container では Actions runner が bash を自動検出できず sh フォールバックしていたため、
     # ジョブ全体の run step を bash で実行するよう明示する。bash は image に同梱されている前提。
     defaults:
