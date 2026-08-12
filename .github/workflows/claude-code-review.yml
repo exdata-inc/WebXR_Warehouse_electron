@@ -326,9 +326,9 @@ jobs:
             *) echo "Issue ${ISSUE_URL} に long-task-done が無い（まだ作業中）→ 何もしない"; exit 0 ;;
           esac
 
-          # --- 3. 自動差し戻しのラウンド数（既存の review-feedback コメント数 + 1）---
+          # --- 3. 自動差し戻しのラウンド数（未解決の review-feedback コメント数 + 1）---
           ROUNDS=$(gh api --paginate "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" \
-            --jq '[ .[] | select((.body // "") | test("<!--[[:space:]]*review-feedback[[:space:]]")) ] | length')
+            --jq '[ .[] | select((.body // "") | test("<!--[[:space:]]*review-feedback[[:space:]]") and ((.body // "") | test("(?m)^resolved:[[:space:]]*yes[[:space:]]*$") | not)) ] | length')
           ROUND=$((ROUNDS + 1))
           echo "自動差し戻し round=${ROUND} / 上限=${MAX_ROUNDS}"
 
