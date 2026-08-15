@@ -272,12 +272,63 @@ jobs:
           # 既存ブランチがあれば fetch & checkout、無ければ default branch から create。
           # 同 head の open PR があれば action 側で existingPrNumber が立つ。
           working_branch: ${{ steps.branch.outputs.working_branch }}
+          # action のベース許可は
+          #   Edit / MultiEdit / Glob / Grep / LS / Read / Write /
+          #   mcp__github_file_ops__{commit_files,delete_files,update_claude_comment}
+          # だけ。ここに書かなかったツールは実行時に denied になるので、
+          # direct_prompt が使えと言っている操作は漏れなく列挙しておくこと。
+          #   Skill / SlashCommand : ECC の skills（tdd-workflow / security-scan 等）の起動に必要。
+          #                          これが無いと「ECC を積極的に使え」と指示しているのに
+          #                          skill 呼び出しが弾かれていた。
+          #   NotebookEdit         : .ipynb を含む repo 用
+          #   create_issue / update_issue_comment / list_issues
+          #                        : 進捗 bot コメントの更新・関連 Issue の確認に使う
+          #                          （gh 経由でも可能だが MCP 側も塞がない）
           allowed_tools: |
             Bash
             WebFetch
             WebSearch
+            Skill
+            SlashCommand
+            NotebookEdit
             mcp__github_file_ops__commit_files
             mcp__github_file_ops__create_pull_request
+            mcp__github_file_ops__create_issue
+            mcp__github_file_ops__update_issue_comment
+            mcp__github_file_ops__list_issues
+          # 内蔵プロンプトの CAPABILITIES AND LIMITATIONS 節が実態と合っておらず、
+          # claude が「権限が無い」と誤解して作業を放棄する事故が続いたため上書きする
+          #（詳しい経緯は claude.yml の同じ箇所のコメントを参照）。
+          # custom_instructions はプロンプト末尾に追記されるので direct_prompt より後に効く。
+          custom_instructions: |
+            ## 実行環境と権限の実態（内蔵プロンプトの CAPABILITIES AND LIMITATIONS 節より優先すること）
+
+            このジョブは self-hosted runner の Docker コンテナ内で **root** として動いています。
+            下記はすべて実行できます。「権限が無い」と言って諦めないでください。
+
+            - **Bash は全面的に許可済み**です。任意のコマンド・任意のスクリプトを実行してよい。
+              同梱済み（すべて PATH 済み）: `python` / `python3` / `pip`（/opt/venv）、`node` / `npm`、
+              `bun`、`cargo` / `rustc` / `clang`、`java` / `mvn` / `gradle`、`gh`、`git`、`jq`、`curl`、
+              `make` / `cmake`、`sudo`、`brew`(linuxbrew)。
+              足りないものは `pip install` / `npm i` / `brew install` で入れてよい（ネットワーク可）。
+            - **ビルド・テストは必ず実際に走らせてから commit** すること（手順 5 の「落ちたら直す」は
+              実行が前提）。「実行できないので未検証」で commit しない。
+            - **GitHub Actions のログ・CI 結果は見られます**（actions:read / checks:read /
+              statuses:read 付与済み）。`gh run list` / `gh run view --log` / `gh pr checks` を使ってよい。
+              内蔵プロンプトの「CI の結果は見られない」は誤りです。
+            - **PR は手順 7 のとおり `gh pr create` で自分で作ってください。**
+              「Create a PR」リンクを貼って終わりにしないこと。
+            - git 操作（commit / push / rebase）は作業ブランチに対して可能です。
+              ただし禁止事項（別ブランチを切らない・デフォルトブランチへ直 push しない）は厳守。
+
+            ## 本当に存在する制限
+            - `.github/workflows/` 配下の変更は GITHUB_TOKEN では push が拒否されます。
+              必要なら差分を提案として Issue にコメントし、人間にメンションすること。
+
+            ## ツールが denied されたとき
+            「権限がありませんでした」で終わらせないこと。**弾かれたツール名と実行しようとした
+            コマンドをそのまま**進捗 bot コメントの「詰まり・要相談メモ」に書いてください
+            （例: `Bash(pytest -q)` が denied）。`allowed_tools` を直す手掛かりになります。
           direct_prompt: |
             あなたは Issue ベースの長期タスクの「1〜2 ステップだけ進める」担当です。
 
@@ -393,8 +444,12 @@ jobs:
             - review-feedback コメントの critical 指摘を「直さずに」`resolved: yes` を書く／
               コメント自体を削除・改変して差し戻しを消す
         env:
-          # claude の Bash 内で `gh` を認証させるためのトークン
-          GH_TOKEN: ${{ github.token }}
+          # claude の Bash 内で `gh` を認証させるためのトークン。
+          # GITHUB_TOKEN でも大抵は足りるが、Settings → Actions の
+          # 「Allow GitHub Actions to create and approve pull requests」が OFF の repo では
+          # 手順 7 の `gh pr create` が 403 で落ちる。PAT があればそちらを優先する
+          #（未設定なら従来どおり GITHUB_TOKEN。後方互換）。
+          GH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN || github.token }}
           # submodule 内のコード修正まで踏み込む必要が出たとき、claude が git submodule update /
           # commit / push に使うトークン（CLAUDE.md の "submodule を操作するときのお願い" 節参照）。
           # secrets に未登録なら空文字が渡り、claude はその場合「権限外」と判断してコメントで終える。

@@ -51,7 +51,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          # fetch-depth: 1（shallow）だと claude が `git log` / `git blame` /
+          # `git diff <base>...HEAD` / rebase を実行できず、「履歴が見られない＝
+          # 権限が無い」と誤解して調査を諦めることがあった。opportunistic-task.yml と
+          # 揃えて全履歴を取る（Cleanup Directory でどのみち毎回消えるので差は初回 fetch のみ）。
+          fetch-depth: 0
 
       - name: Prepare task environment
         run: |
@@ -200,21 +204,92 @@ jobs:
           max_retries: '120'
           retry_interval_seconds: '60'
           # CLAUDE.md の手順に必要なツールを許可する（CI では未許可ツールは弾かれるため）。
-          #   Bash      : post_slack ヘルパー（curl/jq/grep, 関数定義込み）と gh での PR 作成に必須
-          #   WebFetch  : URL 明示のページ取得
-          #   WebSearch : エラー文言などの Web 検索
-          # ※ コード修正・PR 作成が役割なので commit/PR 系は禁止しない（ベース許可のまま）。
+          #
+          # action が常に付ける「ベース許可」は下記だけ:
+          #   Edit / MultiEdit / Glob / Grep / LS / Read / Write /
+          #   mcp__github_file_ops__{commit_files,delete_files,update_claude_comment}
+          # ここに書いたものが追加される。つまり **書かなかったツールは実行時に denied** になる。
+          #
+          #   Bash        : post_slack ヘルパー（curl/jq/grep）、ビルド/テスト、gh での PR 作成に必須
+          #   WebFetch    : URL 明示のページ取得（ベースでは disallowed 側に入っているので明示が必要）
+          #   WebSearch   : エラー文言などの Web 検索（同上）
+          #   Skill       : ~/.claude/skills 配下のスキル起動
+          #   SlashCommand: スキル/コマンドの呼び出し
+          #   NotebookEdit: .ipynb を含む repo での編集
+          #   mcp__github_file_ops__create_pull_request
+          #               : **PR 作成の本体**。これが無いと「PR を作れない」と言って
+          #                 Create-a-PR リンクを貼るだけで終わっていた（実際に多発）。
+          #   mcp__github_file_ops__{create_issue,update_issue_comment,list_issues}
+          #               : 追跡 Issue の起票・コメント更新・関連 Issue の確認
+          # ※ コード修正・PR 作成が役割なので commit/PR 系は禁止しない。
           allowed_tools: |
             Bash
             WebFetch
             WebSearch
+            Skill
+            SlashCommand
+            NotebookEdit
+            mcp__github_file_ops__create_pull_request
+            mcp__github_file_ops__create_issue
+            mcp__github_file_ops__update_issue_comment
+            mcp__github_file_ops__list_issues
+          # ★ここが「権限不足で何もしてくれない」の最大の原因だった★
+          # claude-code-action の内蔵システムプロンプトには CAPABILITIES AND LIMITATIONS 節があり、
+          # 「What You CANNOT Do」として下記が **ハードコードで** 並んでいる:
+          #   - Run arbitrary Bash commands (unless explicitly allowed via allowed_tools configuration)
+          #   - View CI/CD results or workflow run outputs (cannot access GitHub Actions logs or test results)
+          #   - Perform branch operations (cannot merge branches, rebase, ...)
+          # さらに issue 起点の実行では「PR を作る代わりに Create a PR リンクを貼れ」と指示される。
+          # これは GitHub App + GitHub ホストランナー前提の汎用文面で、このジョブの実態
+          #（Bash 全面許可 / actions:read 付与 / gh 同梱 / self-hosted コンテナで root）とは合っていない。
+          # そして claude はこの文面を読んで素直に「権限がないのでできません」と諦めてしまう。
+          # custom_instructions はプロンプトの **最後** に追記されるので、ここで実態を上書きする。
+          custom_instructions: |
+            ## 実行環境と権限の実態（内蔵プロンプトの CAPABILITIES AND LIMITATIONS 節より優先すること）
+
+            このジョブは self-hosted runner の Docker コンテナ内で **root** として動いています。
+            下記はすべて実行できます。「権限が無い」と言って諦めないでください。
+
+            - **Bash は全面的に許可済み**です。任意のコマンド・任意のスクリプトを実行してよい。
+              コンテナに同梱済み（すべて PATH 済み）:
+              `python` / `python3` / `pip`（/opt/venv）、`node` / `npm`、`bun`、`cargo` / `rustc` / `clang`、
+              `java` / `mvn` / `gradle`、`gh`、`git`、`jq`、`curl`、`make` / `cmake`、`sudo`、`brew`(linuxbrew)。
+              足りないものは `pip install` / `npm i` / `brew install` で入れてよい（ネットワークは使える）。
+            - **テスト・ビルド・lint は必ず実行して確認**すること。「実行できないので未検証」で終えない。
+            - **GitHub Actions のログ・CI 結果は見られます**（このジョブに actions:read / checks:read /
+              statuses:read が付いています）。`gh run list` / `gh run view --log` / `gh pr checks` /
+              `gh api` を使ってよい。内蔵プロンプトの「CI の結果は見られない」は誤りです。
+            - **git のブランチ操作は可能**です（branch / checkout / rebase / cherry-pick / push）。
+              ただし CLAUDE.md の禁止事項（merge しない・デフォルトブランチへ直 push しない・
+              force push しない）は厳守すること。
+            - **PR は自分で作ってください。** 「Create a PR」リンクを貼って終わりにしないこと。
+              `gh pr create --base <デフォルトブランチ> --head <作業ブランチ> --title ... --body ...`
+              または `mcp__github_file_ops__create_pull_request` を使う。
+              作成できたら PR の URL を必ずコメントと Slack に残すこと。
+
+            ## 本当に存在する制限
+            - `.github/workflows/` 配下の変更は GITHUB_TOKEN では push が拒否されます
+              （workflow 権限が無いため）。ワークフローの修正が必要だと判断したら、
+              差分を提案としてコメントに書き、人間にメンションして終えること。
+            - merge・PR の approve は行いません（人間の仕事）。
+
+            ## それでも本当にツールが denied されたとき
+            「権限がありませんでした」で終わらせないこと。**弾かれたツール名と実行しようとした
+            コマンドをそのまま**コメントに書いてください（例: `Bash(pytest -q)` が denied、
+            `mcp__github_file_ops__xxx` が denied）。ワークフローの `allowed_tools` を直す
+            手掛かりになります。
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           # claude の Bash 内で `gh` を認証させるためのトークン（PR 作成/コメント等）。
-          # GITHUB_TOKEN（permissions の contents/issues/pull-requests: write）で同一 repo の PR 作成は可能。
-          # ※ GITHUB_TOKEN 作成の PR は他ワークフロー（claude-code-review 等）を起動しない点に注意。
-          #    レビュー bot まで起動させたい場合は PAT（例: secrets.GH_DISPATCH_TOKEN）に差し替える。
-          GH_TOKEN: ${{ github.token }}
+          # GITHUB_TOKEN でも同一 repo の PR 作成は原則可能だが、下記 2 点で詰まることがある:
+          #   1. Settings → Actions → 「Allow GitHub Actions to create and approve pull requests」が
+          #      OFF だと `gh pr create` が 403（"GitHub Actions is not permitted to create ...
+          #      pull requests"）で落ちる。org 既定が OFF のことが多い。
+          #   2. GITHUB_TOKEN 作成の PR は他ワークフロー（claude-code-review 等）を起動しない。
+          # そこで PAT（secrets.GH_DISPATCH_TOKEN）があればそちらを優先する。未設定なら従来どおり
+          # GITHUB_TOKEN で動く（後方互換）。1 に該当して PR が作れない repo は、この secret を
+          # 入れるか上記設定を ON にすること。
+          GH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN || github.token }}
           # submodule 内のコード修正まで踏み込む必要が出たとき、claude が git submodule update /
           # commit / push に使うトークン（CLAUDE.md の "submodule を操作するときのお願い" 節参照）。
           # secrets に未登録なら空文字が渡り、claude はその場合「権限外」と判断してコメントで終える。

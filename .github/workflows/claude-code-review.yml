@@ -52,7 +52,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          # レビューには base との差分（`git diff origin/<base>...HEAD`）と履歴が要る。
+          # fetch-depth: 1 では merge-base が取れず diff を出せないため、claude が
+          # 「差分を確認できない」と言ってレビューを放棄していた。全履歴を取る。
+          fetch-depth: 0
 
       - name: Prepare task environment
         run: |
@@ -245,6 +248,58 @@ jobs:
             - critical が 1 件以上あるとき: `<!-- review-verdict: critical -->`
             - critical が 0 件のとき（major/minor だけ、または指摘なし）: `<!-- review-verdict: ok -->`
 
+          # ★重要★ ここに allowed_tools が無いと、action のベース許可
+          #   （Edit / MultiEdit / Glob / Grep / LS / Read / Write と
+          #     mcp__github_file_ops__{commit_files,delete_files,update_claude_comment}）
+          # だけになり、**Bash が一切使えない**。さらに WebFetch / WebSearch は action 側で
+          # 明示的に disallowed に入れられる。その状態では
+          #   - `git diff` / `gh pr diff` で差分が取れない
+          #   - テスト・ビルド・lint・型チェックを一切実行できない
+          #   - `gh pr checks` で CI 結果を見られない
+          # ため、レビューが「読んだ範囲の推測」だけになり、上の "Test coverage" 観点も
+          # 事実上判定不能だった。レビューに必要な分を明示的に許可する。
+          allowed_tools: |
+            Bash
+            WebFetch
+            WebSearch
+            Skill
+            SlashCommand
+            mcp__github_file_ops__list_issues
+            mcp__github_file_ops__update_issue_comment
+          # レビュー役はコードを書き換えない。誤ってコミットや PR を作らないよう明示的に禁止する
+          #（ハブの claude-triage.yml と同じ考え方）。Bash は許可しているので、
+          # 「push しない」ことは下の custom_instructions でも念押ししている。
+          disallowed_tools: |
+            mcp__github_file_ops__commit_files
+            mcp__github_file_ops__delete_files
+            mcp__github_file_ops__create_pull_request
+          # 内蔵プロンプトの CAPABILITIES AND LIMITATIONS 節が実態と合っていないため上書きする
+          #（詳しい経緯は claude.yml の同じ箇所のコメントを参照）。
+          custom_instructions: |
+            ## 実行環境と権限の実態（内蔵プロンプトの CAPABILITIES AND LIMITATIONS 節より優先すること）
+
+            このジョブは self-hosted runner の Docker コンテナ内で **root** として動いています。
+
+            - **Bash は全面的に許可済み**です。レビューのために遠慮なくコマンドを実行してください。
+              同梱済み: `python` / `python3` / `pip`、`node` / `npm`、`bun`、`cargo` / `rustc` / `clang`、
+              `java` / `mvn` / `gradle`、`gh`、`git`、`jq`、`curl`、`make` / `cmake`、`brew`(linuxbrew)。
+            - 全履歴が checkout 済みなので `git diff origin/${{ github.event.pull_request.base.ref }}...HEAD`
+              や `gh pr diff ${{ github.event.pull_request.number }}` で差分を必ず実物として確認すること。
+            - **推測でレビューしないこと。** ビルド・テスト・型チェック・lint は実際に走らせて、
+              その結果を根拠に指摘する。特に `critical` は実行して確認した事実に基づいて付けること。
+            - **CI の結果も見られます**（actions:read / checks:read / statuses:read 付与済み）。
+              `gh pr checks` / `gh run view --log` を使ってよい。内蔵プロンプトの
+              「CI の結果は見られない」は誤りです。
+
+            ## やってはいけないこと
+            - コード変更の commit / push / PR 作成（レビュー役なので読むだけ）。
+              ローカルでビルドやテストのために作業ツリーを汚すのは構わないが、push はしない。
+            - `.github/workflows/` の変更（そもそも GITHUB_TOKEN では push できない）。
+
+            ## ツールが denied されたとき
+            「権限がありませんでした」で終わらせず、**弾かれたツール名とコマンドをそのまま**
+            レビュー本文に書くこと。`allowed_tools` を直す手掛かりになります。
+
           # Optional: Customize review based on file types
           # direct_prompt: |
           #   Review this PR focusing on:
@@ -266,6 +321,10 @@ jobs:
           # if: |
           #   !contains(github.event.pull_request.title, '[skip-review]') &&
           #   !contains(github.event.pull_request.title, '[WIP]')
+        env:
+          # claude の Bash 内で `gh`（gh pr diff / gh pr checks / gh api 等）を認証させるための
+          # トークン。従来これが無かったため、Bash を許可しても gh が未認証で落ちていた。
+          GH_TOKEN: ${{ github.token }}
 
       # レビューで critical 指摘が出た場合、元の long-task Issue から long-task-done を外して
       # opportunistic-task の抽選対象に戻す（= 人間の再対応待ちにせず、bot が自動で直しに行く）。
