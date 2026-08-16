@@ -22,7 +22,7 @@
 #   3. ハブが Issue search で勝手に拾うので、対象 repo に long-task Issue を立てるだけで投入される。
 #
 # 重要:
-#   - このテンプレは 1〜2 ステップだけ進めて commit する設計。終了まで延々と回さないこと。
+#   - このテンプレは 1〜5 ステップだけ進めて commit する設計。終了まで延々と回さないこと。
 
 name: Opportunistic long-running task
 
@@ -330,7 +330,7 @@ jobs:
             コマンドをそのまま**進捗 bot コメントの「詰まり・要相談メモ」に書いてください
             （例: `Bash(pytest -q)` が denied）。`allowed_tools` を直す手掛かりになります。
           direct_prompt: |
-            あなたは Issue ベースの長期タスクの「1〜2 ステップだけ進める」担当です。
+            あなたは Issue ベースの長期タスクの「1〜5 ステップだけ進める」担当です。
 
             ## everything-claude-code (ECC) が有効
             この runner には ECC (https://github.com/affaan-m/ECC) が `--profile full` でインストール済みで、
@@ -339,7 +339,7 @@ jobs:
             security-scan / research-first 等) を **本タスクに関係するものは積極的に呼び出して**ください
             （例: 実装前に planner agent で最小ステップを設計、実装後に code-reviewer / security-reviewer
             を通す、テスト追加時は tdd-workflow skill を利用、など）。
-            ただし本テンプレの「1 dispatch = 1〜2 ステップ」原則は変えない（ECC を回すために dispatch を
+            ただし本テンプレの「1 dispatch = 1〜5 ステップ」原則は変えない（ECC を回すために dispatch を
             膨らませない）。skill / agent は 1 ステップの品質を上げるための道具として使う。
 
             ## 対象
@@ -385,12 +385,13 @@ jobs:
                     `## Critical` 配下の指摘を把握する。
                  2. 進捗 bot コメントの「完了条件 (DoD)」に critical 指摘を未チェック項目として追記し、
                     「次にやること」の先頭に置く（更新は下記 6 の絶対ルールに従う）。
-                 3. 通常どおり最小 1〜2 件だけ直して commit する（一度に全部やらなくてよい）。
+                 3. 通常どおり 1〜5 件だけ直して commit する（一度に全部やらなくてよい）。
                  4. その review-feedback コメントの critical 指摘を **すべて** 直し切ったときだけ、
                     そのコメントの末尾に `resolved: yes` の行を追記する（バックアップ → `-F body=@file`
                     → 再取得検証は 6 と同じ手順で）。まだ残っているなら追記しない。
                - `resolved: yes` 付きのものだけ、または 1 件も無ければ、通常の長期タスクとして続ける。
-            4. 「次にやること」から **最小 1〜2 件だけ** 選んで着手する。大きすぎれば自分でさらに小分けして最小 1 件にする。
+            4. 「次にやること」から **1〜5 件** 選んで着手する（なるべく3件以上）。1 件が大きすぎるときは
+               自分でさらに小分けして、小分けした分を含めて 5 件以内になるようにする。
             5. 実装→テスト/ビルド→commit。落ちたら直してから commit する。
             6. 進捗 bot コメントを **編集** して更新する:
                - 完了した項目に ✅
@@ -436,7 +437,7 @@ jobs:
 
             ## 禁止事項
             - 別ブランチを切る／main などのデフォルトブランチに直接 push
-            - 1 dispatch で複数の大物タスクをまとめて消化する（次回 dispatch に任せる）
+            - 1 dispatch で 6 件を超えるタスクをまとめて消化する（残りは次回 dispatch に任せる）
             - 進捗 bot コメントの `working_branch:` 行を勝手に書き換える
             - 中途半端な状態で long-task-done ラベルを付ける（完了条件すべて ✅ のときだけ）
             - 未解決の review-feedback コメント（`resolved: yes` 無し）が残っているのに
