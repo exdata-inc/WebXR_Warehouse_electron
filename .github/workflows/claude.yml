@@ -62,36 +62,6 @@ jobs:
           set -euo pipefail
           git config --global --add safe.directory '*'
 
-      # ここで取るのは「初回分」のトークン。長時間実行中に期限切れになるケースは、
-      # claude-code-action に claude_oauth_url を渡すことで action 側が同じ URL から
-      # 再取得する（下の step の該当コメント参照）。
-      - name: Fetch Claude OAuth values
-        id: claude-oauth
-        env:
-          CLAUDE_OAUTH_URL: ${{ secrets.CLAUDE_OAUTH_URL }}
-          IN_ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN || vars.ANTHROPIC_AUTH_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -n "${IN_ANTHROPIC_AUTH_TOKEN:-}" ]; then
-            echo "ANTHROPIC_AUTH_TOKEN が設定されているので OAuth はスキップ"
-            exit 0
-          fi
-          json=$(curl -fsSL "$CLAUDE_OAUTH_URL")
-          access_token=$(printf '%s' "$json" | jq -r '.accessToken')
-          expires_at=$(printf '%s' "$json" | jq -r '.expiresAt | tostring')
-
-          if [ "$access_token" = "null" ] || [ -z "$access_token" ]; then
-            echo "Failed to read accessToken from JSON response" >&2
-            exit 1
-          fi
-          if [ "$expires_at" = "null" ] || [ -z "$expires_at" ]; then
-            echo "Failed to read expiresAt from JSON response" >&2
-            exit 1
-          fi
-
-          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
-          echo "expires_at=$expires_at" >> "$GITHUB_OUTPUT"
-
       # Slack スレッドの添付を claude が Read できるよう、実行前に取得しておく。
       # slackmeta(channel/ts) はハブから引き継がれるので、各 repo 側でも同じ添付を再取得できる。
       # 画像は claude が Read で視覚的に解析できる。失敗してもジョブは止めない（exit 0）。
@@ -132,27 +102,6 @@ jobs:
           jq -r '.messages[]?.files[]? | "- \(.name)  (\(.mimetype // "?"), \(.size // 0) bytes)"' <<< "$resp" > slack-attachments/INDEX.md || true
           echo "添付 $count 件を slack-attachments/ に保存しました"
           ls -la slack-attachments || true
-
-      # claude が `gh pr create` 等で本物の PR を作れるように gh CLI を用意する。
-      # GitHub ホストランナーには既定で入っているが、セルフホストランナーには無いことがある。
-      # 無ければ sudo 不要でローカルに配置し PATH へ通す（Linux x64/arm64）。失敗してもジョブは止めない。
-      - name: Ensure GitHub CLI (gh)
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          if command -v gh >/dev/null 2>&1; then
-            echo "gh あり: $(gh --version | head -1)"; exit 0
-          fi
-          case "$(uname -m)" in
-            x86_64|amd64) A=amd64 ;;
-            aarch64|arm64) A=arm64 ;;
-            *) echo "未対応アーキ $(uname -m)。gh をランナーに手動導入してください" >&2; exit 1 ;;
-          esac
-          VER=2.63.2
-          tmp="$(mktemp -d)"
-          curl -fsSL "https://github.com/cli/cli/releases/download/v${VER}/gh_${VER}_linux_${A}.tar.gz" | tar -xz -C "$tmp"
-          echo "${tmp}/gh_${VER}_linux_${A}/bin" >> "$GITHUB_PATH"
-          "${tmp}/gh_${VER}_linux_${A}/bin/gh" --version | head -1
 
       # ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN が repo の Actions secrets / variables に設定されていれば実行時の環境へ反映する
       #（独自の Anthropic 互換エンドポイント＝gateway やローカル wrapper へ向けたいとき用）。
