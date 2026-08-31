@@ -92,33 +92,6 @@ jobs:
           set -euo pipefail
           git config --global --add safe.directory '*'
 
-      # self-hosted runner には gh CLI が無いことが多いので、無ければ portable binary を
-      # ~/.local/bin に展開し、GITHUB_PATH に通す（sudo 不要）。既にあれば何もしない。
-      # 後続の Resolve working branch step や claude の direct_prompt 内 (gh issue view 等) が
-      # gh を使う前提で書かれているため、Job 冒頭で確保しておく。
-      - name: Ensure gh CLI is available
-        run: |
-          set -euo pipefail
-          if command -v gh >/dev/null 2>&1; then
-            echo "gh CLI already installed: $(gh --version | head -n1)"
-            exit 0
-          fi
-          VERSION="2.62.0"
-          ARCH="$(uname -m)"
-          case "$ARCH" in
-            x86_64)  GH_ARCH=amd64 ;;
-            aarch64) GH_ARCH=arm64 ;;
-            *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;;
-          esac
-          mkdir -p "$HOME/.local/bin"
-          tmp=$(mktemp -d)
-          curl -fsSL "https://github.com/cli/cli/releases/download/v${VERSION}/gh_${VERSION}_linux_${GH_ARCH}.tar.gz" \
-            | tar -xz -C "$tmp"
-          install -m 0755 "$tmp/gh_${VERSION}_linux_${GH_ARCH}/bin/gh" "$HOME/.local/bin/gh"
-          rm -rf "$tmp"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/gh" --version
-
       # everything-claude-code (ECC) を ~/.claude/ 配下にインストールする。
       # install.sh は内部で `npm install` → `node scripts/install-apply.js --profile full` を叩くだけなので、
       # rust-obfuscator コンテナ同梱の bun でその 2 手を直接踏む（node/npm を用意しなくて済む）。
@@ -139,7 +112,7 @@ jobs:
           git -C "$tmp/ECC" checkout "$ECC_REF"
           cd "$tmp/ECC"
           bun install
-          bun scripts/install-apply.js --profile full
+          bun scripts/install-apply.js --profile full --enable-hooks
           echo "=== ~/.claude 配下 ==="
           ls -la "$HOME/.claude" 2>/dev/null || echo "(空)"
           for d in agents skills rules hooks; do
@@ -200,29 +173,6 @@ jobs:
 
           echo "→ Issue #${ISSUE_NUMBER} by @${ISSUE_USER}"
           echo "→ working_branch=$WB"
-
-      # ハブ repo の claude-triage.yml と同じ OAuth 取得パターン。
-      # ここで取るのは「初回分」のトークン。長時間実行中に期限切れになるケースは、
-      # claude-code-action に claude_oauth_url を渡すことで action 側が同じ URL から
-      # 再取得する（下の step の該当コメント参照）。
-      - name: Fetch Claude OAuth values
-        id: claude-oauth
-        env:
-          CLAUDE_OAUTH_URL: ${{ secrets.CLAUDE_OAUTH_URL }}
-          IN_ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN || vars.ANTHROPIC_AUTH_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -n "${IN_ANTHROPIC_AUTH_TOKEN:-}" ]; then
-            echo "ANTHROPIC_AUTH_TOKEN が設定されているので OAuth はスキップ"
-            exit 0
-          fi
-          json=$(curl -fsSL "$CLAUDE_OAUTH_URL")
-          access_token=$(printf '%s' "$json" | jq -r '.accessToken')
-          expires_at=$(printf '%s' "$json" | jq -r '.expiresAt | tostring')
-          [ "$access_token" = "null" ] || [ -z "$access_token" ] && { echo "accessToken 取得失敗" >&2; exit 1; }
-          [ "$expires_at" = "null" ] || [ -z "$expires_at" ] && { echo "expiresAt 取得失敗" >&2; exit 1; }
-          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
-          echo "expires_at=$expires_at" >> "$GITHUB_OUTPUT"
 
       # ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN が repo の Actions secrets / variables に設定されていれば実行時の環境へ反映する
       #（独自の Anthropic 互換エンドポイント＝gateway やローカル wrapper へ向けたいとき用）。
