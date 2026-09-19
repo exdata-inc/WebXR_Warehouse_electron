@@ -64,7 +64,7 @@ jobs:
     # デフォルト 360 分では「実行 120 分 + 待機 + 再開 120 分」が収まらない。余裕を持って 12h。
     timeout-minutes: 720
     container:
-      image: ngtystr/rust-dev-env:1.93.0-21.1.8-20260827
+      image: ngtystr/rust-dev-env:1.93.0-21.1.8-20260901
     # この container では Actions runner が bash を自動検出できず sh フォールバックしていたため、
     # ジョブ全体の run step を bash で実行するよう明示する。bash は image に同梱されている前提。
     defaults:
@@ -206,7 +206,7 @@ jobs:
           # 書き換え、(2) それでも認証エラーで落ちたら再取得 + --resume で同一セッションを
           # 再開する（rate limit retry と同じ仕組み。max_retries を消費する）。
           claude_oauth_url: ${{ secrets.CLAUDE_OAUTH_URL }}
-          model: ${{ secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-5' }}
+          model: ${{ vars.LLM_LONG_TASK_MODEL || secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-haiku-4-5' }}
           # モデル別の限度切れ対策(例: claude-fable-5 の限度だけ先に尽きるケース)。
           # 上の model を起点に、rate limit / モデル利用不可(404)を踏んだら序列のより
           # 下位モデルへ --resume で切り替えて作業を継続する(セッション・会話は引き継ぐ)。
@@ -214,11 +214,9 @@ jobs:
           # 無ければ model の次に序列の先頭から続く。リセット時刻まで待った後は序列の
           # 先頭(= 起点モデル)に戻る。新モデルが出たらここに追記するだけでよい。
           model_fallback_chain: |
-            claude-fable-5
+            claude-fable-5-1[1m]
             claude-opus-5[1m]
-            claude-opus-5
             claude-opus-4-8[1m]
-            claude-opus-4-8
             claude-sonnet-5
             claude-haiku-4-5
           github_token: ${{ github.token }}
