@@ -137,7 +137,7 @@ jobs:
           # 再開する（rate limit retry と同じ仕組み。max_retries を消費する）。
           claude_oauth_url: ${{ secrets.CLAUDE_OAUTH_URL }}
           # Optional: Specify model (defaults to Claude Sonnet 5, uncomment for Claude Opus 5)
-          model: ${{ vars.LLM_REVIEW_MODEL || secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-5' }}
+          model: ${{ vars.LLM_REVIEW_MODEL || secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-5-5' }}
           # モデル別の限度切れ対策(例: claude-fable-5 の限度だけ先に尽きるケース)。
           # 上の model を起点に、rate limit / モデル利用不可(404)を踏んだら序列のより
           # 下位モデルへ --resume で切り替えて作業を継続する(セッション・会話は引き継ぐ)。
