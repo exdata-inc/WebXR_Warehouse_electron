@@ -145,10 +145,12 @@ jobs:
           # 先頭(= 起点モデル)に戻る。新モデルが出たらここに追記するだけでよい。
           model_fallback_chain: |
             claude-fable-5-1[1m]
+            gpt-6-astra[1m]
             claude-opus-5-5[1m]
+            gpt-6.1-sol[1m]
             claude-sonnet-5-5[1m]
+            gpt-6-luna[1m]
             claude-haiku-5-5[1m]
-            claude-opus-4-8[1m]
           # claude-code-action の実行時間制限（デフォ 30 分 → 720 分に延長）。
           timeout_minutes: '720'
           # rate limit 対策の retry。stream-json の rate_limit_event を構造的に検知し、
