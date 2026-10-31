@@ -136,7 +136,7 @@ jobs:
           # 書き換え、(2) それでも認証エラーで落ちたら再取得 + --resume で同一セッションを
           # 再開する（rate limit retry と同じ仕組み。max_retries を消費する）。
           claude_oauth_url: ${{ secrets.CLAUDE_OAUTH_URL }}
-          model: ${{ vars.LLM_BOT_MODEL || secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-sonnet-5-5[1m]' }}
+          model: ${{ vars.LLM_BOT_MODEL || secrets.ANTHROPIC_MODEL || vars.ANTHROPIC_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5[1m]' }}
           # モデル別の限度切れ対策(例: claude-fable-5 の限度だけ先に尽きるケース)。
           # 上の model を起点に、rate limit / モデル利用不可(404)を踏んだら序列のより
           # 下位モデルへ --resume で切り替えて作業を継続する(セッション・会話は引き継ぐ)。
@@ -149,8 +149,10 @@ jobs:
             claude-opus-5-5[1m]
             gpt-6.1-sol[1m]
             claude-sonnet-5-5[1m]
-            gpt-6-luna[1m]
+            gpt-6.1-terra[1m]
             claude-haiku-5-5[1m]
+            gpt-6-luna[1m]
+
           # claude-code-action の実行時間制限（デフォ 30 分 → 720 分に延長）。
           timeout_minutes: '720'
           # rate limit 対策の retry。stream-json の rate_limit_event を構造的に検知し、
