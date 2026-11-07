@@ -118,8 +118,10 @@ jobs:
             echo "ANTHROPIC_BASE_URL を反映しました: ${IN_ANTHROPIC_BASE_URL}"
           fi
           if [ -n "${IN_ANTHROPIC_AUTH_TOKEN:-}" ]; then
+            # vars から来た値は自動ではマスクされないので、ログに出る前に明示的に伏せる
+            echo "::add-mask::${IN_ANTHROPIC_AUTH_TOKEN}"
             echo "ANTHROPIC_AUTH_TOKEN=${IN_ANTHROPIC_AUTH_TOKEN}" >> "$GITHUB_ENV"
-            echo "ANTHROPIC_AUTH_TOKEN を反映しました: ${IN_ANTHROPIC_AUTH_TOKEN}"
+            echo "ANTHROPIC_AUTH_TOKEN を反映しました（値は伏せています）"
           fi
           true
 

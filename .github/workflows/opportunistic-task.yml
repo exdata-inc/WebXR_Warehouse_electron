@@ -189,8 +189,10 @@ jobs:
             echo "ANTHROPIC_BASE_URL を反映しました: ${IN_ANTHROPIC_BASE_URL}"
           fi
           if [ -n "${IN_ANTHROPIC_AUTH_TOKEN:-}" ]; then
+            # vars から来た値は自動ではマスクされないので、ログに出る前に明示的に伏せる
+            echo "::add-mask::${IN_ANTHROPIC_AUTH_TOKEN}"
             echo "ANTHROPIC_AUTH_TOKEN=${IN_ANTHROPIC_AUTH_TOKEN}" >> "$GITHUB_ENV"
-            echo "ANTHROPIC_AUTH_TOKEN を反映しました: ${IN_ANTHROPIC_AUTH_TOKEN}"
+            echo "ANTHROPIC_AUTH_TOKEN を反映しました（値は伏せています）"
           fi
           true
 
@@ -421,7 +423,8 @@ jobs:
           # submodule 内のコード修正まで踏み込む必要が出たとき、claude が git submodule update /
           # commit / push に使うトークン（CLAUDE.md の "submodule を操作するときのお願い" 節参照）。
           # secrets に未登録なら空文字が渡り、claude はその場合「権限外」と判断してコメントで終える。
-          GH_TOKEN_SUBMODULE_RW: ${{ secrets.GH_TOKEN_SUBMODULE_RW }}
+          # submodule を持たない repo では使い道が無いので、.gitmodules があるときだけ渡す
+          GH_TOKEN_SUBMODULE_RW: ${{ hashFiles('.gitmodules') != '' && secrets.GH_TOKEN_SUBMODULE_RW || '' }}
 
       # このジョブはコンテナ内で root として動くため、checkout / cargo が生成した
       # ファイルは host 上で root 所有になる。次に同じ self-hosted runner で
