@@ -41,13 +41,38 @@ jobs:
     # デフォルト 360 分では「実行 120 分 + 待機 + 再開 120 分」が収まらない。余裕を持って 12h。
     timeout-minutes: 720
     container:
-      image: ngtystr/rust-dev-env:1.98.1-22.1.8-20260928
+      image: ngtystr/rust-dev-env:1.99.1-23.1.1-20261106
     # この container では Actions runner が bash を自動検出できず sh フォールバックしていたため、
     # ジョブ全体の run step を bash で実行するよう明示する。bash は image に同梱されている前提。
     defaults:
       run:
         shell: bash
     steps:
+      # トリガー語は Issue / コメントを書ける人なら誰でも入れられるので、最初に起動者
+      # (github.actor) の実際の権限を API で確かめ、書き込み権限 (admin / maintain / write)
+      # が無ければここで止める。claude-code-action の prepare でも同じ確認をしているが、
+      # そこまでに Slack 添付の取得などシークレットを使う step が動いてしまうので前倒しする。
+      # author_association は使わない: read 権限のコラボレータも COLLABORATOR になり、
+      # org の所属を非公開にしている人は MEMBER にならないことがあるため。
+      - name: Authorize actor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          case "$ACTOR" in
+            # claude-code-action 側の許可リスト (checkHumanActor の ALLOWED_BOTS) と揃える
+            'claude[bot]'|'github-actions[bot]') echo "許可済みの bot: ${ACTOR}"; exit 0 ;;
+            *'[bot]') echo "::error::bot (${ACTOR}) からの起動は受け付けません"; exit 1 ;;
+          esac
+          # .permission は maintain を write、triage を read にまとめた値を返す
+          perm=$(gh api "repos/${REPO}/collaborators/${ACTOR}/permission" --jq '.permission' 2>/dev/null || echo none)
+          case "$perm" in
+            admin|write) echo "${ACTOR} の権限: ${perm} → 続行" ;;
+            *) echo "::error::${ACTOR} に書き込み権限がありません (${perm})。Claude は起動しません"; exit 1 ;;
+          esac
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -118,8 +143,10 @@ jobs:
             echo "ANTHROPIC_BASE_URL を反映しました: ${IN_ANTHROPIC_BASE_URL}"
           fi
           if [ -n "${IN_ANTHROPIC_AUTH_TOKEN:-}" ]; then
+            # vars から来た値は自動ではマスクされないので、ログに出る前に明示的に伏せる
+            echo "::add-mask::${IN_ANTHROPIC_AUTH_TOKEN}"
             echo "ANTHROPIC_AUTH_TOKEN=${IN_ANTHROPIC_AUTH_TOKEN}" >> "$GITHUB_ENV"
-            echo "ANTHROPIC_AUTH_TOKEN を反映しました: ${IN_ANTHROPIC_AUTH_TOKEN}"
+            echo "ANTHROPIC_AUTH_TOKEN を反映しました（値は伏せています）"
           fi
           true
 
@@ -254,7 +281,8 @@ jobs:
           # submodule 内のコード修正まで踏み込む必要が出たとき、claude が git submodule update /
           # commit / push に使うトークン（CLAUDE.md の "submodule を操作するときのお願い" 節参照）。
           # secrets に未登録なら空文字が渡り、claude はその場合「権限外」と判断してコメントで終える。
-          GH_TOKEN_SUBMODULE_RW: ${{ secrets.GH_TOKEN_SUBMODULE_RW }}
+          # submodule を持たない repo では使い道が無いので、.gitmodules があるときだけ渡す
+          GH_TOKEN_SUBMODULE_RW: ${{ hashFiles('.gitmodules') != '' && secrets.GH_TOKEN_SUBMODULE_RW || '' }}
 
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"

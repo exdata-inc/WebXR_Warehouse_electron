@@ -42,7 +42,7 @@ jobs:
     # デフォルト 360 分では「実行 120 分 + 待機 + 再開 120 分」が収まらない。余裕を持って 12h。
     timeout-minutes: 720
     container:
-      image: ngtystr/rust-dev-env:1.98.1-22.1.8-20260928
+      image: ngtystr/rust-dev-env:1.99.1-23.1.1-20261106
     # この container では Actions runner が bash を自動検出できず sh フォールバックしていたため、
     # ジョブ全体の run step を bash で実行するよう明示する。bash は image に同梱されている前提。
     defaults:
@@ -118,8 +118,10 @@ jobs:
             echo "ANTHROPIC_BASE_URL を反映しました: ${IN_ANTHROPIC_BASE_URL}"
           fi
           if [ -n "${IN_ANTHROPIC_AUTH_TOKEN:-}" ]; then
+            # vars から来た値は自動ではマスクされないので、ログに出る前に明示的に伏せる
+            echo "::add-mask::${IN_ANTHROPIC_AUTH_TOKEN}"
             echo "ANTHROPIC_AUTH_TOKEN=${IN_ANTHROPIC_AUTH_TOKEN}" >> "$GITHUB_ENV"
-            echo "ANTHROPIC_AUTH_TOKEN を反映しました: ${IN_ANTHROPIC_AUTH_TOKEN}"
+            echo "ANTHROPIC_AUTH_TOKEN を反映しました（値は伏せています）"
           fi
           true
 
@@ -343,7 +345,7 @@ jobs:
 
           # --- 3. 自動差し戻しのラウンド数（未解決の review-feedback コメント数 + 1）---
           ROUNDS=$(gh api --paginate "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" \
-            --jq '[ .[] | select((.body // "") | test("<!--[[:space:]]*review-feedback[[:space:]]") and ((.body // "") | test("(?m)^resolved:[[:space:]]*yes[[:space:]]*$") | not)) ] | length')
+            --jq '[ .[] | select(((.body // "") | test("<!--[[:space:]]*review-feedback[[:space:]]")) and ((.body // "") | test("(?m)^resolved:[[:space:]]*yes[[:space:]]*$") | not)) ] | length')
           ROUND=$((ROUNDS + 1))
           echo "自動差し戻し round=${ROUND} / 上限=${MAX_ROUNDS}"
 
