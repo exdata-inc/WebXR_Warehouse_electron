@@ -343,7 +343,7 @@ jobs:
 
           # --- 3. 自動差し戻しのラウンド数（未解決の review-feedback コメント数 + 1）---
           ROUNDS=$(gh api --paginate "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" \
-            --jq '[ .[] | select((.body // "") | test("<!--[[:space:]]*review-feedback[[:space:]]") and ((.body // "") | test("(?m)^resolved:[[:space:]]*yes[[:space:]]*$") | not)) ] | length')
+            --jq '[ .[] | select(((.body // "") | test("<!--[[:space:]]*review-feedback[[:space:]]")) and ((.body // "") | test("(?m)^resolved:[[:space:]]*yes[[:space:]]*$") | not)) ] | length')
           ROUND=$((ROUNDS + 1))
           echo "自動差し戻し round=${ROUND} / 上限=${MAX_ROUNDS}"
 
