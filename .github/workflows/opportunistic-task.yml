@@ -71,6 +71,31 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Authorize issue author
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo '::error::Invalid issue number'
+            exit 1
+          fi
+          issue=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}")
+          author=$(printf '%s' "$issue" | jq -er '
+            select(.pull_request == null and .user.type == "User")
+            | .user.login | select(type == "string" and length > 0)')
+          if [[ ! "$author" =~ ^[A-Za-z0-9-]+$ ]]; then
+            echo '::error::Invalid issue author'
+            exit 1
+          fi
+          permission=$(gh api "repos/${REPO}/collaborators/${author}/permission" --jq '.permission')
+          case "$permission" in
+            admin|write) ;;
+            *) echo '::error::Issue author lacks write permission'; exit 1 ;;
+          esac
+
       - name: Checkout default branch
         # 一部 submodule（外部 org や SSH 形式 URL 等）で fetch がコケても、親 repo が
         # 取れていれば claude 側で必要な submodule だけ後から init する運用にできる。
@@ -96,7 +121,7 @@ jobs:
       # install.sh は内部で `npm install` → `node scripts/install-apply.js --profile full` を叩くだけなので、
       # rust-obfuscator コンテナ同梱の bun でその 2 手を直接踏む（node/npm を用意しなくて済む）。
       # 結果として agents / skills / rules / hooks 一式が ~/.claude/{agents,skills,rules,hooks}/ecc/ に配置される。
-      # ECC のリビジョンは vars.ECC_REF で差し替え可能（未設定なら main の HEAD）。
+      # ECC のリビジョンは vars.ECC_REF で差し替え可能（未設定なら main の HEAD; コンテナ内の閉鎖空間で実行のため、セキュリティのための commit SHA 固定までは行わない）。
       - name: Install everything-claude-code (ECC)
         env:
           ECC_REF: ${{ vars.ECC_REF || 'main' }}
@@ -108,10 +133,14 @@ jobs:
           fi
           echo "bun version: $(bun --version)"
           tmp=$(mktemp -d)
-          git clone https://github.com/affaan-m/ECC "$tmp/ECC"
-          git -C "$tmp/ECC" checkout "$ECC_REF"
+          git clone --no-checkout https://github.com/affaan-m/ECC "$tmp/ECC"
+          git -C "$tmp/ECC" checkout --detach "$ECC_REF"
+          [[ "$(git -C "$tmp/ECC" rev-parse --verify HEAD)" = "$ECC_REF" ]] || {
+            printf '%s\n' '::error::ECC HEAD does not match ECC_REF' >&2
+            exit 1
+          }
           cd "$tmp/ECC"
-          bun install
+          bun install --frozen-lockfile --ignore-scripts
           bun scripts/install-apply.js --profile full --enable-hooks
           echo "=== ~/.claude 配下 ==="
           ls -la "$HOME/.claude" 2>/dev/null || echo "(空)"
@@ -129,6 +158,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ inputs.issue_number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           REPO="${{ github.repository }}"
@@ -161,6 +191,11 @@ jobs:
               | cut -c1-40)
             WB="claude/task-${ISSUE_NUMBER}-${SLUG:-x}"
           fi
+          if [[ ! "$WB" =~ ^[A-Za-z0-9._/-]+$ || "$WB" == "$DEFAULT_BRANCH" || "$WB" == "main" || "$WB" == "master" || "$WB" == "production" ]]; then
+            echo '::error::Invalid working branch'
+            exit 1
+          fi
+          git check-ref-format "refs/heads/$WB"
 
           echo "working_branch=$WB" >> "$GITHUB_OUTPUT"
           echo "issue_user=$ISSUE_USER" >> "$GITHUB_OUTPUT"
