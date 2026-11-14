@@ -37,7 +37,9 @@ jobs:
     #   github.event.pull_request.user.login == 'new-developer' ||
     #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
 
-    runs-on: self-hosted
+    # container ジョブは Linux の Docker が要るので、macOS / Windows の self-hosted runner には載せない。
+    # ラベル指定は AND 条件（イメージは linux/amd64・linux/arm64 両対応なので X64 / ARM64 は問わない）。
+    runs-on: [self-hosted, Linux]
     # rate limit 時に resetsAt(最大 5h 先)まで待ってから --resume で再開するため、
     # デフォルト 360 分では「実行 120 分 + 待機 + 再開 120 分」が収まらない。余裕を持って 12h。
     timeout-minutes: 720
